@@ -19,7 +19,8 @@ fi
 
 for path in README.md LICENSE VERSION CHANGELOG.md AGENTS.md \
     .gitignore .gitattributes .editorconfig docs/design.md \
-    docs/development.md src/README.md tests/README.md scripts/check.sh; do
+    docs/development.md docs/termux-touch.md src/README.md tests/README.md scripts/check.sh \
+    scripts/probe-termux-ime.sh tests/probe_pty.py; do
     [[ -s "$path" ]] || fail "Missing or empty file: $path"
 done
 
@@ -32,9 +33,11 @@ grep -Fq "**$version**" README.md \
     || fail 'README.md does not show the current VERSION.'
 
 bash -n scripts/check.sh
+bash -n scripts/probe-termux-ime.sh
+python3 tests/probe_pty.py
 [[ -d .git || -f .git ]] || fail 'Initialize this directory as a Git repository first.'
 git_cmd rev-parse --is-inside-work-tree >/dev/null
 git_cmd diff --check
 git_cmd diff --cached --check
 
-printf 'PASS: scaffold checks (version %s). No functional tests exist yet.\n' "$version"
+printf 'PASS: repository checks (version %s). Android touch and IME require a real terminal.\n' "$version"

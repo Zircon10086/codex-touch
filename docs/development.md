@@ -6,9 +6,9 @@
 bash scripts/check.sh
 ```
 
-当前检查覆盖必要文件、版本号格式、变更记录、Shell 语法和 Git 工作区／暂存区的空白错误。尚无功能源码，因此没有功能测试，也没有构建产物。
+当前检查覆盖必要文件、版本号格式、变更记录、Shell 语法、Git 空白错误，以及键盘探针在合成 PTY 中的命中和清理。探针测试不启动 Codex 或操作 Android 前台，不能证明手机输入法已弹出。真机对照步骤见[首次调查](termux-touch.md)。
 
-脚本可以从其他目录调用，会自行定位项目根目录。仅需 Bash、Git 和常见 Unix 工具；Debian guest 缺少 Git 时自动经 `termux-run` 使用宿主 Git。也可以显式在宿主运行：
+脚本可以从其他目录调用，会自行定位项目根目录。需要 Bash、Python 3（标准库）、Git 和常见 Unix 工具；Debian guest 缺少 Git 时自动经 `termux-run` 使用宿主 Git。也可以显式在宿主运行：
 
 ```sh
 termux-run --cwd /storage/emulated/0/Agent/codex-touch bash scripts/check.sh
