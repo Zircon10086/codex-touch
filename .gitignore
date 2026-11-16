@@ -1,0 +1,23 @@
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+.codex/
+*.local
+*.local.*
+
+# Generated output and temporary files
+/build/
+/dist/
+/artifacts/
+/tmp/
+*.log
+*.tmp
+
+# Editor state
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
