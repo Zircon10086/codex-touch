@@ -1,0 +1,10 @@
+{
+  "repository": "https://github.com/openai/codex.git",
+  "tag": "rust-v0.169.0",
+  "commit": "d32063f96c2dff1dc96af839b3952abb6acfeda4",
+  "rust_toolchain": "1.95.0",
+  "target": "aarch64-unknown-linux-gnu",
+  "profile": "dev-small",
+  "lockfile_upstream_sha256": "56e04c89b25a6efa1fa6f1cf02934e92451933c8ebda57a5153207ba9ea9fb9e",
+  "lockfile_build_sha256": "200de438778a44c55d452b8931f5293ec3d7bda66c48717605b202764a4d3f7a"
+}

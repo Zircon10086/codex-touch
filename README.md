@@ -6,6 +6,8 @@
 
 [首次调查：问答点选与 Android 软键盘](docs/termux-touch.md) 记录原版行为、源码位置、建议的 Codex 补丁，以及一个无需修改 APK 的键盘实验。
 
+[手机本地基线构建](docs/baseline-build.md) 提供固定上游提交和 Debian ARM64 构建入口。Codex 0.169.0 基线已在手机构建并通过隔离的工具调用与 TUI 验收，可作为触摸适配前的对照版本。
+
 ## 开发入口
 
 在工作区运行：

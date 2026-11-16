@@ -4,6 +4,14 @@ set -euo pipefail
 project_root="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 cd -- "$project_root"
 
+baseline_package=''
+if [[ $# == 2 && "$1" == '--baseline-package' ]]; then
+    baseline_package="$2"
+elif [[ $# != 0 ]]; then
+    printf 'Usage: bash scripts/check.sh [--baseline-package PATH]\n' >&2
+    exit 2
+fi
+
 fail() {
     printf 'FAIL: %s\n' "$*" >&2
     exit 1
@@ -20,7 +28,9 @@ fi
 for path in README.md LICENSE VERSION CHANGELOG.md AGENTS.md \
     .gitignore .gitattributes .editorconfig docs/design.md \
     docs/development.md docs/termux-touch.md src/README.md tests/README.md scripts/check.sh \
-    scripts/probe-termux-ime.sh tests/probe_pty.py; do
+    scripts/probe-termux-ime.sh tests/probe_pty.py upstream.json \
+    scripts/build-baseline.sh scripts/prepare-lock.py tests/test_prepare_lock.py \
+    tests/baseline_smoke.py docs/baseline-build.md; do
     [[ -s "$path" ]] || fail "Missing or empty file: $path"
 done
 
@@ -34,7 +44,15 @@ grep -Fq "**$version**" README.md \
 
 bash -n scripts/check.sh
 bash -n scripts/probe-termux-ime.sh
+bash -n scripts/build-baseline.sh
+bash scripts/build-baseline.sh --help >/dev/null
+python3 -m json.tool upstream.json >/dev/null
+python3 -B tests/test_prepare_lock.py
+python3 -c 'import ast; from pathlib import Path; ast.parse(Path("tests/baseline_smoke.py").read_text())'
 python3 tests/probe_pty.py
+if [[ -n "$baseline_package" ]]; then
+    python3 -B tests/baseline_smoke.py "$baseline_package"
+fi
 [[ -d .git || -f .git ]] || fail 'Initialize this directory as a Git repository first.'
 git_cmd rev-parse --is-inside-work-tree >/dev/null
 git_cmd diff --check
