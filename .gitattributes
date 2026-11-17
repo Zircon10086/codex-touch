@@ -6,3 +6,6 @@ VERSION text eol=lf
 .gitignore text eol=lf
 .gitattributes text eol=lf
 .editorconfig text eol=lf
+
+# Unified diffs retain a single context marker on empty lines.
+*.patch whitespace=-blank-at-eol

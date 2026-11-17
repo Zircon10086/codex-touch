@@ -13,3 +13,10 @@ bash scripts/check.sh --baseline-package /home/developer/codex-touch-build/packa
 ```
 
 不传 `--baseline-package` 时不会执行已构建 Codex 的集成验收。
+
+
+`touch_pty.py` 驱动真实适配包的异步问答界面，使用合成 SGR 点击、终端缩放、本机假模型和隔离状态，检查答案投递及终端恢复。通过 `bash scripts/check.sh --touch-package PATH` 运行，并自动运行已有程序包回归。原版基线会在摘要点击展开处失败。
+
+Rust 触摸行为测试保存在 `src/async-question-touch.patch`，应用后位于上游 `async_questions/mouse_tests.rs` 和问答集成测试模块。`bash scripts/check.sh --rust-tests` 编译并运行问答、共享行渲染器和普通问答弹层回归；首次会编译额外的上游测试依赖。精确源码核对可用 `--upstream-source PATH`。详见[阶段一说明](../docs/phase1.md)。
+
+`test_prepare_touch.py` 用临时合成 Git 仓库检查补丁应用、重复执行、只读检查、真实索引保持，以及拒绝错误版本、本地改动、预先存在的新文件和未知文件。

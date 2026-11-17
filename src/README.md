@@ -1,5 +1,7 @@
-# 源码目录
+# 源码与来源
 
-在确认首个触摸功能、输入链路和实现语言后，将功能源码放在此处，并同步添加构建或运行入口。
+`async-question-touch.patch` 是针对 `upstream.json` 固定提交的 Codex Rust TUI 补丁，包含实现和上游测试。测试文件随补丁保留在上游对应模块中，仓库的 `scripts/check.sh --rust-tests` 为统一入口。
 
-当前没有可运行的触摸组件。
+补丁基于 OpenAI Codex（https://github.com/openai/codex），保留上游 Apache-2.0 许可，许可与声明副本为 `LICENSE.upstream`、`NOTICE.upstream`。补丁标识了 codex-touch 对上游文件的修改；原作者的声明保持不变。本项目独立脚本与文档采用根目录 MIT；MIT 不替代上游许可。分发完整二进制时也需遵守上游及依赖许可。
+
+补丁不包含发布标签的 Cargo.lock 元数据规范化；该修正继续由 `scripts/prepare-lock.py` 独立处理。`prepare-touch.py` 用临时 Git 索引计算预期源码，不修改真实索引，拒绝未知改动。

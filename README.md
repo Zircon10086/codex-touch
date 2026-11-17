@@ -2,11 +2,13 @@
 
 为 Termux 中的 Codex 提供触摸操作支持的组件。
 
-当前版本：**0.1.0**（框架基线）。目前已核对 Codex 0.169.0 和 Google Play 版 Termux 的输入链路，复现了问答不响应点按、主输入框能用点按移动光标的区别，尚未发布触摸适配。
+当前版本：**0.1.0**（已发布框架基线）。未发布开发版已实现 Codex 0.169.0 的第一阶段异步问答触摸：点开问题、点选答案、Other/自由填写以及底部操作提示点按。手机本地构建、Rust 回归与合成 PTY 集成验收已通过；真实 Android 点按仍待人工验收，自动弹键盘尚未实现。
 
 [首次调查：问答点选与 Android 软键盘](docs/termux-touch.md) 记录原版行为、源码位置、建议的 Codex 补丁，以及一个无需修改 APK 的键盘实验。
 
 [手机本地基线构建](docs/baseline-build.md) 提供固定上游提交和 Debian ARM64 构建入口。Codex 0.169.0 基线已在手机构建并通过隔离的工具调用与 TUI 验收，可作为触摸适配前的对照版本。
+
+[第一阶段：异步问答触摸](docs/phase1.md) 提供开发版行为、构建/启动命令、验证结果和待做的真机验收。
 
 ## 开发入口
 
@@ -22,8 +24,8 @@ bash scripts/check.sh
 ## 目录
 
 ```text
-src/                 后续功能源码
-tests/               后续自动化测试
+src/                 上游触摸补丁与许可证
+tests/               合成 PTY 与程序包回归
 scripts/check.sh     仓库与合成 PTY 检查入口
 scripts/probe-termux-ime.sh  在独立交互终端中验证软键盘假设
 docs/termux-touch.md 版本、原版对照实验、适配路线与真机验证步骤
@@ -37,4 +39,4 @@ CHANGELOG.md         版本变更记录
 
 ## 许可证
 
-[MIT](LICENSE)。
+自有脚本和文档采用 [MIT](LICENSE)。Codex 上游补丁基于 Apache-2.0 源码，来源和许可见 [src/README.md](src/README.md)。

@@ -6,7 +6,7 @@
 bash scripts/check.sh
 ```
 
-当前检查覆盖必要文件、版本号格式、变更记录、Shell 语法、Git 空白错误，以及键盘探针在合成 PTY 中的命中和清理。探针测试不启动 Codex 或操作 Android 前台，不能证明手机输入法已弹出。真机对照步骤见[首次调查](termux-touch.md)。
+当前基础检查覆盖补丁语法、必要文件、版本号格式、变更记录、Shell 语法、Git 空白错误，以及键盘探针在合成 PTY 中的命中和清理。探针测试不启动 Codex 或操作 Android 前台，不能证明手机输入法已弹出。真机对照步骤见[首次调查](termux-touch.md)。
 
 脚本可以从其他目录调用，会自行定位项目根目录。需要 Bash、Python 3（标准库）、Git 和常见 Unix 工具；Debian guest 缺少 Git 时自动经 `termux-run` 使用宿主 Git。也可以显式在宿主运行：
 
@@ -25,7 +25,7 @@ Android 共享存储可能限制直接执行文件，因此统一使用 `bash sc
 3. 将源码加入 `src/`，有必要的测试加入 `tests/`，统一接入检查入口。
 4. 将用户可见的变化记录到 `CHANGELOG.md` 的 `Unreleased` 下，运行检查并审阅差异后提交。
 
-Git 提交按可独立理解的改动组织，例如 `chore: initialize development scaffold`、`feat: ...`、`fix: ...`。在 guest 中手动使用 Git 时加上 `termux-run` 前缀。
+Git 提交按可独立理解的改动组织，例如 `chore: initialize development scaffold`、`feat: ...`、`fix: ...`。宿主工具使用 `termux-run`；Debian 已安装原生 Git 时，可直接操作 guest 源码。
 
 若 Git 提示仓库所有权不一致，仅对本仓库使用单次参数：
 
@@ -51,3 +51,5 @@ git tag -a v0.2.0 -m "codex-touch 0.2.0"
 ```
 
 guest 中标签命令同样通过 `termux-run git` 执行。提交与附注标签都需要 Git 身份。远端仓库、推送和发布在确定托管位置后单独配置。
+
+适配版构建与完整验证入口见[第一阶段](phase1.md)。`--rust-tests` 和 `--touch-package PATH` 属于显式的耗时检查，不会在基础检查时自动编译。

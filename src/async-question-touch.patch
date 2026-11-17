@@ -1,0 +1,1310 @@
+diff --git a/codex-rs/tui/src/app/owned_transcript.rs b/codex-rs/tui/src/app/owned_transcript.rs
+index 37e406c..1e719da 100644
+--- a/codex-rs/tui/src/app/owned_transcript.rs
++++ b/codex-rs/tui/src/app/owned_transcript.rs
+@@ -845,6 +845,9 @@ impl App {
+         {
+             self.chat_widget.end_composer_drag();
+         }
++        if matches!(event, TuiEvent::Resize(_)) {
++            self.chat_widget.cancel_question_touch();
++        }
+         if !tui.is_owned_screen() || self.overlay.is_some() {
+             return Ok(false);
+         }
+@@ -875,6 +878,10 @@ impl App {
+             if mouse.kind != crossterm::event::MouseEventKind::Moved {
+                 self.refresh_owned_transcript(tui)?;
+             }
++            if self.chat_widget.handle_question_mouse(*mouse) {
++                tui.frame_requester().schedule_frame();
++                return Ok(true);
++            }
+             if self
+                 .conversation_frame
+                 .chooser_area()
+diff --git a/codex-rs/tui/src/bottom_pane/async_questions/input.rs b/codex-rs/tui/src/bottom_pane/async_questions/input.rs
+index cc4fb88..89960b8 100644
+--- a/codex-rs/tui/src/bottom_pane/async_questions/input.rs
++++ b/codex-rs/tui/src/bottom_pane/async_questions/input.rs
+@@ -83,7 +83,11 @@ impl AsyncQuestions {
+         )
+     }
+ 
+-    pub(super) fn render_inline_options(&self, area: Rect, buf: &mut ratatui::buffer::Buffer) {
++    pub(super) fn render_inline_options(
++        &self,
++        area: Rect,
++        buf: &mut ratatui::buffer::Buffer,
++    ) -> Vec<crate::bottom_pane::selection_popup_common::RowRegion> {
+         use ratatui::text::Line;
+         use ratatui::widgets::Widget;
+ 
+@@ -101,14 +105,15 @@ impl AsyncQuestions {
+             self.visible_options
+                 .set((state.scroll_top, rows.len() - state.scroll_top));
+         }
+-        crate::bottom_pane::request_user_input::render::render_rows_bottom_aligned(
+-            named_area,
+-            buf,
+-            &rows,
+-            &state,
+-            rows.len(),
+-            "",
+-        );
++        let regions =
++            crate::bottom_pane::request_user_input::render::render_rows_bottom_aligned_with_regions(
++                named_area,
++                buf,
++                &rows,
++                &state,
++                rows.len(),
++                "",
++            );
+         let margin = Rect::new(
+             area.x,
+             input.y,
+@@ -124,6 +129,7 @@ impl AsyncQuestions {
+         .style(crate::style::accent_style())
+         .render(margin, buf);
+         self.composer.render_inline_input(input, buf);
++        regions
+     }
+     pub(crate) fn set_keymap(&mut self, keymap: &RuntimeKeymap) {
+         self.keymap = keymap.clone();
+@@ -153,6 +159,7 @@ impl BottomPaneView for AsyncQuestions {
+     }
+ 
+     fn handle_key_event(&mut self, key: KeyEvent) {
++        self.cancel_touch();
+         if key.kind == KeyEventKind::Repeat && self.other_selector == Some(key.code) {
+             return;
+         }
+@@ -284,6 +291,7 @@ impl BottomPaneView for AsyncQuestions {
+         CancellationEvent::Handled
+     }
+     fn handle_paste(&mut self, text: String) -> bool {
++        self.cancel_touch();
+         if self.is_complete() || text.is_empty() {
+             return false;
+         }
+diff --git a/codex-rs/tui/src/bottom_pane/async_questions/mod.rs b/codex-rs/tui/src/bottom_pane/async_questions/mod.rs
+index 12dcb63..3ffbf13 100644
+--- a/codex-rs/tui/src/bottom_pane/async_questions/mod.rs
++++ b/codex-rs/tui/src/bottom_pane/async_questions/mod.rs
+@@ -30,6 +30,9 @@ use unicode_width::UnicodeWidthStr;
+ 
+ mod input;
+ mod layout;
++mod mouse;
++#[cfg(test)]
++mod mouse_tests;
+ mod render;
+ mod state;
+ 
+@@ -70,6 +73,9 @@ pub(crate) struct AsyncQuestions {
+     pub(crate) delivery_enabled: bool,
+     pub(crate) submission: Option<QuestionSubmission>,
+     visible_options: std::cell::Cell<(usize, usize)>,
++    pub(crate) touch_enabled: bool,
++    touch: std::cell::RefCell<mouse::TouchState>,
++    pub(crate) touch_key: Option<KeyEvent>,
+     keymap: RuntimeKeymap,
+     // Ignore autorepeat from the number key that opened Other.
+     other_selector: Option<KeyCode>,
+@@ -105,6 +111,9 @@ impl AsyncQuestions {
+             delivery_enabled: true,
+             submission: None,
+             visible_options: std::cell::Cell::new((0, 0)),
++            touch_enabled: std::env::var("CODEX_TOUCH").as_deref() == Ok("1"),
++            touch: std::cell::RefCell::default(),
++            touch_key: None,
+             keymap,
+             other_selector: None,
+             composer,
+diff --git a/codex-rs/tui/src/bottom_pane/async_questions/mouse.rs b/codex-rs/tui/src/bottom_pane/async_questions/mouse.rs
+new file mode 100644
+index 0000000..dbd542d
+--- /dev/null
++++ b/codex-rs/tui/src/bottom_pane/async_questions/mouse.rs
+@@ -0,0 +1,187 @@
++//! Opt-in touch routing for async questions. Rendering owns hit regions; a release
++//! activates only the same target pressed in an unchanged layout and question.
++use super::*;
++use crate::key_hint::ShortcutHint;
++use crossterm::event::MouseButton;
++use crossterm::event::MouseEvent;
++use crossterm::event::MouseEventKind;
++use ratatui::layout::Rect;
++
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub(super) enum Target {
++    Expand,
++    Option(usize),
++    Input,
++    Key(crate::key_hint::KeyBinding),
++}
++
++#[derive(Default, PartialEq, Eq)]
++pub(super) struct TouchLayout {
++    pub(super) question_id: String,
++    pub(super) count: usize,
++    pub(super) expanded: bool,
++    pub(super) area: Rect,
++    pub(super) targets: Vec<(Rect, Target)>,
++}
++
++#[derive(Default)]
++pub(super) struct TouchState {
++    layout: TouchLayout,
++    pressed: Option<Target>,
++    editing: bool,
++}
++
++impl AsyncQuestions {
++    pub(super) fn touch_layout(&self, area: Rect) -> TouchLayout {
++        TouchLayout {
++            question_id: self
++                .current_answer()
++                .map(|q| q.question_id.clone())
++                .unwrap_or_default(),
++            count: self.unanswered_count(),
++            expanded: self.expanded,
++            area,
++            targets: Vec::new(),
++        }
++    }
++
++    pub(super) fn set_touch_layout(&self, layout: TouchLayout) {
++        if !self.touch_enabled {
++            return;
++        }
++        let mut touch = self.touch.borrow_mut();
++        if touch.layout != layout {
++            touch.pressed = None;
++            touch.editing = false;
++        }
++        touch.layout = layout;
++    }
++
++    pub(crate) fn hide_touch(&self) {
++        *self.touch.borrow_mut() = TouchState::default();
++    }
++
++    pub(crate) fn render_touch_summary(&self, area: Rect) {
++        let mut layout = self.touch_layout(area);
++        if !area.is_empty() {
++            layout.targets.push((area, Target::Expand));
++        }
++        self.set_touch_layout(layout);
++    }
++
++    pub(crate) fn cancel_touch(&mut self) {
++        let touch = self.touch.get_mut();
++        touch.pressed = None;
++        touch.editing = false;
++        self.composer.end_mouse_drag();
++    }
++
++    pub(crate) fn invalidate_touch(&mut self) {
++        self.cancel_touch();
++        *self.touch.get_mut() = TouchState::default();
++    }
++
++    pub(crate) fn prepare_touch(&mut self, event: MouseEvent) {
++        if self.focus_is_notes() {
++            self.composer.prepare_mouse(event);
++        }
++    }
++
++    pub(crate) fn handle_touch(&mut self, event: MouseEvent) -> bool {
++        if !self.touch_enabled || self.is_complete() {
++            return false;
++        }
++        let touch = self.touch.borrow();
++        if touch.layout.expanded != self.expanded
++            || self
++                .current_answer()
++                .is_none_or(|q| q.question_id != touch.layout.question_id)
++        {
++            return false;
++        }
++        let inside = touch.layout.area.contains((event.column, event.row).into());
++        let target = touch
++            .layout
++            .targets
++            .iter()
++            .find(|(area, _)| area.contains((event.column, event.row).into()))
++            .map(|(_, target)| target.clone());
++        let owned = touch.pressed.is_some() || touch.editing;
++        drop(touch);
++        match event.kind {
++            MouseEventKind::Down(MouseButton::Left) => {
++                self.cancel_touch();
++                if inside && event.modifiers.is_empty() {
++                    self.snooze_auto_resolution();
++                    if target == Some(Target::Input) {
++                        let editing =
++                            self.composer.prepare_mouse(event) && self.composer.handle_mouse(event);
++                        self.touch.get_mut().editing = editing;
++                    } else {
++                        self.touch.get_mut().pressed = target;
++                    }
++                }
++            }
++            MouseEventKind::Up(MouseButton::Left) => {
++                if self.touch.get_mut().editing {
++                    self.composer.handle_mouse(event);
++                }
++                let pressed = self.touch.get_mut().pressed.take();
++                self.cancel_touch();
++                if event.modifiers.is_empty()
++                    && pressed == target
++                    && let Some(pressed) = pressed
++                {
++                    match pressed {
++                        Target::Expand => self.set_expanded(true),
++                        Target::Option(index) => {
++                            self.select_option(index);
++                            if self.other_selected() {
++                                self.composer.resume_text_entry();
++                            } else {
++                                self.go_next_or_submit();
++                            }
++                        }
++                        Target::Key(binding) => {
++                            let (code, modifiers) = binding.parts();
++                            self.touch_key = Some(KeyEvent::new(code, modifiers));
++                        }
++                        Target::Input => {}
++                    }
++                }
++            }
++            MouseEventKind::Drag(_) | MouseEventKind::Moved => {
++                self.touch.get_mut().pressed = None;
++                if self.touch.get_mut().editing {
++                    self.composer.handle_mouse(event);
++                }
++            }
++            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
++                self.cancel_touch();
++                if inside && target == Some(Target::Input) {
++                    if self.composer.prepare_mouse(event) {
++                        self.composer.handle_mouse(event);
++                    }
++                } else if inside && self.expanded && self.has_options() {
++                    self.snooze_auto_resolution();
++                    let current = self.selected_option_index().unwrap_or(0);
++                    let index = if event.kind == MouseEventKind::ScrollUp {
++                        current.saturating_sub(1)
++                    } else {
++                        (current + 1).min(self.options_len() - 1)
++                    };
++                    self.select_option(index);
++                }
++            }
++            _ => self.cancel_touch(),
++        }
++        inside || owned
++    }
++}
++
++pub(super) fn hint_target(hint: ShortcutHint) -> Option<Target> {
++    match hint {
++        ShortcutHint::Single(binding) => Some(Target::Key(binding)),
++        ShortcutHint::Chord { .. } => None,
++    }
++}
+diff --git a/codex-rs/tui/src/bottom_pane/async_questions/mouse_tests.rs b/codex-rs/tui/src/bottom_pane/async_questions/mouse_tests.rs
+new file mode 100644
+index 0000000..dccb397
+--- /dev/null
++++ b/codex-rs/tui/src/bottom_pane/async_questions/mouse_tests.rs
+@@ -0,0 +1,247 @@
++//! Touch regression tests use painted cells, including wrapped rows and clipped layouts.
++use super::*;
++use crate::render::renderable::Renderable;
++use crossterm::event::KeyModifiers;
++use crossterm::event::MouseButton;
++use crossterm::event::MouseEvent;
++use crossterm::event::MouseEventKind;
++use ratatui::buffer::Buffer;
++use ratatui::layout::Rect;
++
++fn editor() -> AsyncQuestions {
++    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
++    let mut q = AsyncQuestions::new(
++        AppEventSender::new(tx),
++        true,
++        true,
++        true,
++        RuntimeKeymap::defaults(),
++    );
++    q.touch_enabled = true;
++    q.append(
++        "touch-message",
++        &[
++            AsyncUserInputQuestion {
++                title: "Choose a route".into(),
++                options: Some(vec!["Alpha".into(), "Beta".into()]),
++            },
++            AsyncUserInputQuestion {
++                title: "Write a note".into(),
++                options: None,
++            },
++        ],
++    );
++    q.set_expanded(true);
++    q
++}
++fn render(q: &AsyncQuestions, width: u16, height: u16) -> Buffer {
++    let area = Rect::new(3, 2, width, height);
++    let mut buf = Buffer::empty(area);
++    q.render(area, &mut buf);
++    buf
++}
++fn point(buf: &Buffer, text: &str) -> (u16, u16) {
++    for y in buf.area.y..buf.area.bottom() {
++        for x in buf.area.x..buf.area.right() {
++            let suffix: String = (x..buf.area.right())
++                .map(|col| buf[(col, y)].symbol())
++                .collect();
++            if suffix.starts_with(text) {
++                return (x, y);
++            }
++        }
++    }
++    panic!("missing painted text: {text}");
++}
++
++fn event(q: &mut AsyncQuestions, pos: (u16, u16), kind: MouseEventKind) -> bool {
++    q.handle_touch(MouseEvent {
++        kind,
++        column: pos.0,
++        row: pos.1,
++        modifiers: KeyModifiers::NONE,
++    })
++}
++fn click(q: &mut AsyncQuestions, pos: (u16, u16)) {
++    assert!(event(q, pos, MouseEventKind::Down(MouseButton::Left)));
++    assert!(event(q, pos, MouseEventKind::Up(MouseButton::Left)));
++}
++fn answer(q: &mut AsyncQuestions) -> String {
++    match q.submission.take().expect("answer") {
++        QuestionSubmission::Submit(text) => text,
++        QuestionSubmission::Queue(_) => panic!("unexpected queue"),
++    }
++}
++#[test]
++fn touch_summary_opens_only_on_matching_release_and_snoozes_timeout() {
++    let mut q = editor();
++    q.set_expanded(false);
++    q.render_touch_summary(Rect::new(8, 20, 40, 2));
++    event(&mut q, (9, 20), MouseEventKind::Down(MouseButton::Left));
++    assert!(!q.expanded);
++    event(&mut q, (9, 20), MouseEventKind::Up(MouseButton::Left));
++    assert!(q.expanded);
++    assert!(q.timer_remaining(Instant::now()).is_none());
++}
++#[test]
++fn touch_painted_choice_submits_once_and_never_answers_next_question_on_release() {
++    let mut q = editor();
++    let buf = render(&q, 55, 15);
++    let pos = point(&buf, "Beta");
++    click(&mut q, pos);
++    assert!(answer(&mut q).contains("Beta"));
++    q.accept_answer();
++    render(&q, 55, 15);
++    event(&mut q, pos, MouseEventKind::Up(MouseButton::Left));
++    assert!(q.submission.is_none());
++    assert_eq!(q.unanswered_count(), 1);
++}
++#[test]
++fn touch_wrapped_unicode_choice_uses_bottom_aligned_painted_rows() {
++    let mut q = editor();
++    q.state.pending[0].question.options =
++        Some(vec!["中文问题选择 ".repeat(3) + "TAIL", "Beta".into()]);
++    let buf = render(&q, 28, 20);
++    let pos = point(&buf, "TAIL");
++    click(&mut q, pos);
++    assert!(answer(&mut q).contains("TAIL"));
++}
++#[test]
++fn touch_drag_wheel_modified_click_and_blank_space_do_not_submit() {
++    for kind in [
++        MouseEventKind::Drag(MouseButton::Left),
++        MouseEventKind::ScrollDown,
++        MouseEventKind::Moved,
++    ] {
++        let mut q = editor();
++        let buf = render(&q, 55, 15);
++        let pos = point(&buf, "Beta");
++        event(&mut q, pos, MouseEventKind::Down(MouseButton::Left));
++        event(&mut q, pos, kind);
++        render(&q, 55, 15);
++        event(&mut q, pos, MouseEventKind::Up(MouseButton::Left));
++        assert!(q.submission.is_none());
++    }
++    let mut q = editor();
++    let buf = render(&q, 55, 15);
++    let pos = point(&buf, "Beta");
++    q.handle_touch(MouseEvent {
++        kind: MouseEventKind::Down(MouseButton::Left),
++        column: pos.0,
++        row: pos.1,
++        modifiers: KeyModifiers::CONTROL,
++    });
++    event(&mut q, pos, MouseEventKind::Up(MouseButton::Left));
++    assert!(q.submission.is_none());
++    click(&mut q, (3, 2));
++    assert!(q.submission.is_none());
++}
++#[test]
++fn touch_resize_navigation_resolution_and_focus_cancel_pending_press() {
++    for mode in 0..6 {
++        let mut q = editor();
++        let buf = render(&q, 55, 15);
++        let pos = point(&buf, "Beta");
++        event(&mut q, pos, MouseEventKind::Down(MouseButton::Left));
++        match mode {
++            0 => {
++                render(&q, 30, 15);
++                render(&q, 55, 15);
++            }
++            1 => {
++                q.navigate(true);
++                q.navigate(false);
++                render(&q, 55, 15);
++            }
++            2 => {
++                q.resolve_answers(&[q.state.pending[0].question_id.clone()]);
++                render(&q, 55, 15);
++            }
++            3 => q.cancel_touch(),
++            4 => {
++                q.hide_touch();
++                render(&q, 55, 15);
++            }
++            _ => {
++                q.handle_key_event(KeyEvent::from(KeyCode::Up));
++                render(&q, 55, 15);
++            }
++        }
++        event(&mut q, pos, MouseEventKind::Up(MouseButton::Left));
++        assert!(q.submission.is_none(), "mode {mode}");
++    }
++}
++#[test]
++fn touch_clipped_option_and_disabled_delivery_cannot_submit() {
++    let mut q = editor();
++    q.state.pending[0].question.options = Some(vec!["oversized ".repeat(40)]);
++    let buf = render(&q, 28, 9);
++    let pos = point(&buf, "oversized");
++    click(&mut q, pos);
++    assert!(q.submission.is_none());
++    let mut q = editor();
++    q.delivery_enabled = false;
++    let buf = render(&q, 55, 15);
++    let pos = point(&buf, "Beta");
++    click(&mut q, pos);
++    assert!(q.submission.is_none());
++}
++#[test]
++fn touch_other_edits_existing_composer_and_footer_uses_the_existing_submit_key() {
++    let mut q = editor();
++    let buf = render(&q, 55, 15);
++    let pos = point(&buf, "Other");
++    click(&mut q, pos);
++    assert!(q.other_selected());
++    assert!(q.submission.is_none());
++    q.handle_paste("typed note".into());
++    let buf = render(&q, 55, 15);
++    let pos = point(&buf, "typed note");
++    click(&mut q, pos);
++    q.handle_key_event(KeyEvent::from(KeyCode::Char('X')));
++    assert!(q.composer.current_text().starts_with('X'));
++    let buf = render(&q, 55, 15);
++    let pos = point(&buf, "submit");
++    click(&mut q, pos);
++    let key = q.touch_key.take().expect("footer key");
++    q.handle_key_event(key);
++    assert!(answer(&mut q).contains("Xtyped note"));
++}
++#[test]
++fn touch_freeform_and_narrow_footer_keep_keyboard_queue_semantics() {
++    let mut q = editor();
++    q.navigate(true);
++    q.handle_paste("freeform".into());
++    let buf = render(&q, 24, 16);
++    let pos = point(&buf, "submit");
++    click(&mut q, pos);
++    let key = q.touch_key.take().unwrap();
++    assert!(q.keymap.composer.submit.is_pressed(key));
++    // Tab queues only while a turn is running; idle Tab submits in the upstream composer.
++    q.composer.set_task_running(true);
++    q.handle_key_event(KeyEvent::from(KeyCode::Tab));
++    assert!(
++        matches!(q.submission.take(),Some(QuestionSubmission::Queue(text)) if text.contains("freeform"))
++    );
++}
++#[test]
++fn touch_opt_out_preserves_original_mouse_behavior() {
++    let mut q = editor();
++    q.touch_enabled = false;
++    let buf = render(&q, 55, 15);
++    let pos = point(&buf, "Beta");
++    assert!(!event(&mut q, pos, MouseEventKind::Down(MouseButton::Left)));
++    assert!(q.submission.is_none());
++}
++
++#[test]
++fn touch_input_scroll_does_not_change_other_to_a_named_answer() {
++    let mut q = editor();
++    q.focus_other();
++    q.handle_paste("first\nsecond\nthird".into());
++    let buf = render(&q, 55, 15);
++    let pos = point(&buf, "second");
++    event(&mut q, pos, MouseEventKind::ScrollUp);
++    assert!(q.other_selected());
++    assert!(q.submission.is_none());
++}
+diff --git a/codex-rs/tui/src/bottom_pane/async_questions/render.rs b/codex-rs/tui/src/bottom_pane/async_questions/render.rs
+index 5cbfae5..bdb5c35 100644
+--- a/codex-rs/tui/src/bottom_pane/async_questions/render.rs
++++ b/codex-rs/tui/src/bottom_pane/async_questions/render.rs
+@@ -16,7 +16,9 @@ use crate::terminal_hyperlinks::HyperlinkParagraph;
+ 
+ use super::AsyncQuestions;
+ use super::TIP_SEPARATOR;
+-use crate::bottom_pane::request_user_input::render::render_rows_bottom_aligned;
++use super::mouse::Target;
++use super::mouse::hint_target;
++use crate::bottom_pane::request_user_input::render::render_rows_bottom_aligned_with_regions;
+ use crate::bottom_pane::request_user_input::render::truncate_line_word_boundary_with_ellipsis;
+ use crate::keymap::KeymapContext;
+ 
+@@ -43,9 +45,11 @@ impl Renderable for AsyncQuestions {
+ 
+     fn render(&self, area: Rect, buf: &mut Buffer) {
+         self.visible_options.set((0, 0));
++        let mut touch = self.touch_layout(area);
+         ratatui::widgets::Clear.render(area, buf);
+         let content_area = render_menu_surface(area, buf);
+         if content_area.is_empty() {
++            self.set_touch_layout(touch);
+             return;
+         }
+         let sections = self.layout_sections(content_area);
+@@ -56,8 +60,12 @@ impl Renderable for AsyncQuestions {
+         )
+         .render(sections.question_area, buf);
+ 
++        let mut regions = Vec::new();
+         if self.other_selected() {
+-            self.render_inline_options(sections.options_area, buf);
++            regions = self.render_inline_options(sections.options_area, buf);
++            touch
++                .targets
++                .push((self.other_input_area(sections.options_area), Target::Input));
+         } else if self.has_options() && sections.options_area.height > 0 {
+             let option_rows = self.option_rows(sections.options_area.width);
+             let mut options_state = self.state.pending[self.state.current_idx].options_state;
+@@ -91,7 +99,7 @@ impl Renderable for AsyncQuestions {
+                 .count();
+             options_state.scroll_top = first;
+             self.visible_options.set((first, visible));
+-            render_rows_bottom_aligned(
++            regions = render_rows_bottom_aligned_with_regions(
+                 sections.options_area,
+                 buf,
+                 &option_rows,
+@@ -101,7 +109,13 @@ impl Renderable for AsyncQuestions {
+             );
+         }
+ 
++        touch.targets.extend(
++            regions
++                .into_iter()
++                .map(|r| (r.area, Target::Option(r.index))),
++        );
+         if !self.has_options() {
++            touch.targets.push((sections.notes_area, Target::Input));
+             self.composer.render_inline_input(sections.notes_area, buf);
+         }
+ 
+@@ -131,12 +145,20 @@ impl Renderable for AsyncQuestions {
+             );
+         }
+         let option_tip = sections.show_option_tip.then(|| self.option_tip());
+-        let lines = self
+-            .footer_lines(footer_area.width, option_tip)
++        let (footer_lines, footer_targets) = self.footer_layout(footer_area.width, option_tip);
++        for (mut rect, target) in footer_targets {
++            rect.x += footer_area.x;
++            rect.y += footer_area.y;
++            if rect.bottom() <= footer_area.bottom() {
++                touch.targets.push((rect, target));
++            }
++        }
++        let lines = footer_lines
+             .into_iter()
+             .map(|line| truncate_line_word_boundary_with_ellipsis(line, footer_area.width as usize))
+             .collect::<Vec<_>>();
+         Paragraph::new(lines).render(footer_area, buf);
++        self.set_touch_layout(touch);
+     }
+ 
+     fn cursor_pos(&self, area: Rect) -> Option<(u16, u16)> {
+@@ -166,10 +188,18 @@ impl AsyncQuestions {
+         width: u16,
+         option_tip: Option<Span<'static>>,
+     ) -> Vec<Line<'static>> {
++        self.footer_layout(width, option_tip).0
++    }
++
++    fn footer_layout(
++        &self,
++        width: u16,
++        option_tip: Option<Span<'static>>,
++    ) -> (Vec<Line<'static>>, Vec<(Rect, Target)>) {
+         if !self.focus_is_notes()
+             && let Some(flash) = self.composer.inline_flash()
+         {
+-            return vec![flash];
++            return (vec![flash], Vec::new());
+         }
+         let mut tips = Vec::new();
+         let chat_hint = |action| self.keymap.primary_hint(KeymapContext::Chat, action);
+@@ -185,19 +215,28 @@ impl AsyncQuestions {
+                     if self.keymap.chat.interrupt_turn.contains(&binding)
+                         || self.keymap.chat.edit_queued_message.contains(&binding)))
+         {
+-            tips.push(crate::footer_hint::shortcut(&key.display_label(), "submit"));
++            tips.push((
++                crate::footer_hint::shortcut(&key.display_label(), "submit"),
++                hint_target(key),
++            ));
+         }
+         if let Some(key) = chat_hint("skip_question") {
+-            tips.push(crate::footer_hint::shortcut(&key.display_label(), "skip"));
++            tips.push((
++                crate::footer_hint::shortcut(&key.display_label(), "skip"),
++                hint_target(key),
++            ));
+         }
+-        tips.extend(option_tip.map(Line::from));
++        tips.extend(option_tip.map(|tip| (Line::from(tip), None)));
+         if let Some(key) = chat_hint("prompt_stack_back") {
+             let label = if self.state.current_idx > 0 {
+                 "prev question"
+             } else {
+                 "main prompt"
+             };
+-            tips.push(crate::footer_hint::shortcut(&key.display_label(), label));
++            tips.push((
++                crate::footer_hint::shortcut(&key.display_label(), label),
++                hint_target(key),
++            ));
+         }
+         let next = if self.state.current_idx + 1 < self.state.pending.len() {
+             Some("next question")
+@@ -209,11 +248,15 @@ impl AsyncQuestions {
+         if let Some(label) = next
+             && let Some(key) = chat_hint("edit_queued_message")
+         {
+-            tips.push(crate::footer_hint::shortcut(&key.display_label(), label));
++            tips.push((
++                crate::footer_hint::shortcut(&key.display_label(), label),
++                hint_target(key),
++            ));
+         }
+         let mut lines = Vec::new();
+         let mut line = Line::default();
+-        for tip in tips {
++        let mut targets = Vec::new();
++        for (tip, target) in tips {
+             if !line.spans.is_empty() {
+                 if line.width() + TIP_SEPARATOR.len() + tip.width() > usize::from(width) {
+                     lines.push(std::mem::take(&mut line));
+@@ -221,10 +264,23 @@ impl AsyncQuestions {
+                     line.spans.push(TIP_SEPARATOR.into());
+                 }
+             }
++            if let Some(target) = target
++                && line.width() + tip.width() <= usize::from(width)
++            {
++                targets.push((
++                    Rect::new(
++                        line.width() as u16,
++                        lines.len() as u16,
++                        tip.width() as u16,
++                        1,
++                    ),
++                    target,
++                ));
++            }
+             line.spans.extend(tip.spans);
+         }
+         lines.push(line);
+-        lines
++        (lines, targets)
+     }
+ 
+     pub(super) fn option_tip(&self) -> Span<'static> {
+diff --git a/codex-rs/tui/src/bottom_pane/async_questions/state.rs b/codex-rs/tui/src/bottom_pane/async_questions/state.rs
+index 7023328..30ab202 100644
+--- a/codex-rs/tui/src/bottom_pane/async_questions/state.rs
++++ b/codex-rs/tui/src/bottom_pane/async_questions/state.rs
+@@ -60,6 +60,7 @@ impl AsyncQuestions {
+     }
+ 
+     pub(crate) fn set_expanded(&mut self, expanded: bool) {
++        self.invalidate_touch();
+         self.save_current_draft();
+         self.expanded = expanded && !self.state.pending.is_empty();
+         if self.expanded {
+@@ -68,6 +69,7 @@ impl AsyncQuestions {
+     }
+ 
+     pub(crate) fn navigate(&mut self, forward: bool) -> bool {
++        self.invalidate_touch();
+         let next = if forward {
+             self.state.current_idx.checked_add(1)
+         } else {
+@@ -153,6 +155,7 @@ impl AsyncQuestions {
+ 
+     /// Return whether resolving these answers changed the expanded question's input target.
+     pub(crate) fn resolve_answers(&mut self, question_ids: &[String]) -> bool {
++        self.invalidate_touch();
+         // History can arrive before live questions or before restoring local drafts.
+         self.state.answered_ids.extend(question_ids.iter().cloned());
+         // Older desktop replies identify the whole source message instead of one question.
+@@ -191,6 +194,7 @@ impl AsyncQuestions {
+     }
+ 
+     pub(crate) fn accept_answer(&mut self) {
++        self.invalidate_touch();
+         if self.state.pending.is_empty() {
+             return;
+         }
+@@ -206,6 +210,7 @@ impl AsyncQuestions {
+     }
+ 
+     pub(crate) fn clear_pending(&mut self) {
++        self.invalidate_touch();
+         // Keep seen_ids so replay cannot restore questions from the previous prompt.
+         self.state.pending.clear();
+         self.state.current_idx = 0;
+@@ -237,6 +242,7 @@ impl AsyncQuestions {
+     }
+ 
+     pub(crate) fn restore(&mut self, saved: QuestionState) {
++        self.invalidate_touch();
+         self.visible_options.set((0, 0));
+         let incoming = std::mem::replace(&mut self.state, saved);
+         let mut answered_ids = incoming.answered_ids;
+diff --git a/codex-rs/tui/src/bottom_pane/mod.rs b/codex-rs/tui/src/bottom_pane/mod.rs
+index a165ca1..46fed66 100644
+--- a/codex-rs/tui/src/bottom_pane/mod.rs
++++ b/codex-rs/tui/src/bottom_pane/mod.rs
+@@ -1965,6 +1965,9 @@ impl BottomPane {
+     }
+ 
+     pub(crate) fn end_composer_drag(&mut self) {
++        if let Some(questions) = &mut self.questions {
++            questions.cancel_touch();
++        }
+         self.composer.end_mouse_drag();
+     }
+ 
+@@ -2025,6 +2028,17 @@ impl BottomPane {
+         if event.kind != crossterm::event::MouseEventKind::Moved {
+             self.view_transition_key_guard = None;
+         }
++        if self.has_active_view() {
++            if let Some(questions) = &mut self.questions {
++                questions.invalidate_touch();
++            }
++        } else if let Some(questions) = self
++            .questions
++            .as_mut()
++            .filter(|q| q.expanded && q.touch_enabled)
++        {
++            questions.prepare_touch(event);
++        }
+         if self.has_active_view() || self.questions.as_ref().is_some_and(|q| q.expanded) {
+             self.composer.end_mouse_drag();
+             return false;
+@@ -2461,6 +2475,11 @@ impl BottomPane {
+         mut options: ComposerRenderOptions<'a>,
+         views: &'a [Box<dyn BottomPaneView>],
+     ) -> RenderableItem<'a> {
++        if (!views.is_empty() || self.warnings_active())
++            && let Some(questions) = &self.questions
++        {
++            questions.hide_touch();
++        }
+         if self.warnings_active()
+             && let Some(warnings) = &self.warnings_view
+         {
+@@ -2574,7 +2593,13 @@ impl BottomPane {
+             if let Some(summary) = question_summary {
+                 flex.push(
+                     /*flex*/ 0,
+-                    RenderableItem::Owned(Box::new(Paragraph::new(summary))),
++                    RenderableItem::Owned(Box::new(questions::QuestionSummary {
++                        questions: self
++                            .questions
++                            .as_ref()
++                            .expect("question summary has an editor"),
++                        lines: summary,
++                    })),
+                 );
+             }
+             let mut flex2 = FlexRenderable::new();
+diff --git a/codex-rs/tui/src/bottom_pane/questions.rs b/codex-rs/tui/src/bottom_pane/questions.rs
+index 132c5ea..8e8abae 100644
+--- a/codex-rs/tui/src/bottom_pane/questions.rs
++++ b/codex-rs/tui/src/bottom_pane/questions.rs
+@@ -91,3 +91,18 @@ impl BottomPane {
+         Some(lines)
+     }
+ }
++
++/// Record only the area actually allocated to the collapsed question entry.
++pub(super) struct QuestionSummary<'a> {
++    pub(super) questions: &'a AsyncQuestions,
++    pub(super) lines: Vec<Line<'static>>,
++}
++impl Renderable for QuestionSummary<'_> {
++    fn render(&self, area: Rect, buf: &mut Buffer) {
++        Paragraph::new(self.lines.clone()).render(area, buf);
++        self.questions.render_touch_summary(area);
++    }
++    fn desired_height(&self, _width: u16) -> u16 {
++        self.lines.len() as u16
++    }
++}
+diff --git a/codex-rs/tui/src/bottom_pane/request_user_input/render.rs b/codex-rs/tui/src/bottom_pane/request_user_input/render.rs
+index fb95a97..61578e3 100644
+--- a/codex-rs/tui/src/bottom_pane/request_user_input/render.rs
++++ b/codex-rs/tui/src/bottom_pane/request_user_input/render.rs
+@@ -416,8 +416,20 @@ pub(in crate::bottom_pane) fn render_rows_bottom_aligned(
+     max_results: usize,
+     empty_message: &str,
+ ) {
++    let _ =
++        render_rows_bottom_aligned_with_regions(area, buf, rows, state, max_results, empty_message);
++}
++
++pub(in crate::bottom_pane) fn render_rows_bottom_aligned_with_regions(
++    area: Rect,
++    buf: &mut Buffer,
++    rows: &[crate::bottom_pane::selection_popup_common::GenericDisplayRow],
++    state: &ScrollState,
++    max_results: usize,
++    empty_message: &str,
++) -> Vec<crate::bottom_pane::selection_popup_common::RowRegion> {
+     if area.width == 0 || area.height == 0 {
+-        return;
++        return Vec::new();
+     }
+ 
+     let scratch_area = Rect::new(0, 0, area.width, area.height);
+@@ -427,14 +439,15 @@ pub(in crate::bottom_pane) fn render_rows_bottom_aligned(
+             scratch[(x, y)] = buf[(area.x + x, area.y + y)].clone();
+         }
+     }
+-    let rendered_height = render_rows(
+-        scratch_area,
+-        &mut scratch,
+-        rows,
+-        state,
+-        max_results,
+-        empty_message,
+-    );
++    let (rendered_height, mut regions) =
++        crate::bottom_pane::selection_popup_common::render_rows_with_regions(
++            scratch_area,
++            &mut scratch,
++            rows,
++            state,
++            max_results,
++            empty_message,
++        );
+ 
+     let visible_height = rendered_height.min(area.height);
+     let y_offset = area.height.saturating_sub(visible_height);
+@@ -443,6 +456,11 @@ pub(in crate::bottom_pane) fn render_rows_bottom_aligned(
+             buf[(area.x + x, area.y + y_offset + y)] = scratch[(x, y)].clone();
+         }
+     }
++    for region in &mut regions {
++        region.area.x += area.x;
++        region.area.y += area.y + y_offset;
++    }
++    regions
+ }
+ 
+ /// Truncate a styled line to `max_width`, preferring a word boundary, and append an ellipsis.
+diff --git a/codex-rs/tui/src/bottom_pane/selection_popup_common.rs b/codex-rs/tui/src/bottom_pane/selection_popup_common.rs
+index b223430..5ac4b7d 100644
+--- a/codex-rs/tui/src/bottom_pane/selection_popup_common.rs
++++ b/codex-rs/tui/src/bottom_pane/selection_popup_common.rs
+@@ -389,6 +389,12 @@ pub(crate) struct RenderedRows {
+     pub(crate) has_below: bool,
+ }
+ 
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub(crate) struct RowRegion {
++    pub(crate) index: usize,
++    pub(crate) area: Rect,
++}
++
+ fn render_rows_inner(
+     area: Rect,
+     buf: &mut Buffer,
+@@ -397,6 +403,7 @@ fn render_rows_inner(
+     max_results: usize,
+     empty_message: &str,
+     column_width: ColumnWidthConfig,
++    mut regions: Option<&mut Vec<RowRegion>>,
+ ) -> RenderedRows {
+     if rows_all.is_empty() {
+         if area.height > 0 {
+@@ -449,7 +456,17 @@ fn render_rows_inner(
+ 
+         let mut wrapped =
+             wrap_row_lines(row, desc_col, area.width, column_width.description_layout);
+-        clipped |= wrapped.len() > usize::from(area.bottom().saturating_sub(cur_y));
++        let fully_visible = wrapped.len() <= usize::from(area.bottom().saturating_sub(cur_y));
++        if fully_visible
++            && !row.is_disabled
++            && let Some(regions) = regions.as_mut()
++        {
++            regions.push(RowRegion {
++                index: i,
++                area: Rect::new(area.x, cur_y, area.width, wrapped.len() as u16),
++            });
++        }
++        clipped |= !fully_visible;
+         for line in &mut wrapped {
+             apply_row_state_style(
+                 std::slice::from_mut(&mut line.line),
+@@ -515,6 +532,7 @@ pub(crate) fn render_rows(
+         max_results,
+         empty_message,
+         ColumnWidthConfig::default(),
++        None,
+     )
+     .lines
+ }
+@@ -542,6 +560,7 @@ pub(crate) fn render_rows_with_col_width_mode(
+         max_results,
+         empty_message,
+         column_width,
++        None,
+     )
+ }
+ 
+@@ -1108,3 +1127,26 @@ mod tests {
+         assert!(style.add_modifier.contains(Modifier::BOLD));
+     }
+ }
++
++/// Return only fully painted rows, using the renderer's wrapping and viewport decisions.
++pub(crate) fn render_rows_with_regions(
++    area: Rect,
++    buf: &mut Buffer,
++    rows: &[GenericDisplayRow],
++    state: &ScrollState,
++    max_results: usize,
++    empty_message: &str,
++) -> (u16, Vec<RowRegion>) {
++    let mut regions = Vec::new();
++    let rendered = render_rows_inner(
++        area,
++        buf,
++        rows,
++        state,
++        max_results,
++        empty_message,
++        ColumnWidthConfig::default(),
++        Some(&mut regions),
++    );
++    (rendered.lines, regions)
++}
+diff --git a/codex-rs/tui/src/chatwidget/questions.rs b/codex-rs/tui/src/chatwidget/questions.rs
+index c65a10c..74ea81b 100644
+--- a/codex-rs/tui/src/chatwidget/questions.rs
++++ b/codex-rs/tui/src/chatwidget/questions.rs
+@@ -14,7 +14,7 @@ impl ChatWidget {
+                 .bottom_pane
+                 .questions
+                 .as_ref()
+-                .is_some_and(|q| q.expanded)
++                .is_some_and(|q| q.expanded && !q.touch_enabled)
+         {
+             MouseCapture::Disabled
+         } else {
+@@ -54,6 +54,9 @@ impl ChatWidget {
+     }
+ 
+     pub(super) fn handle_question_key(&mut self, key: KeyEvent) -> bool {
++        if let Some(questions) = &mut self.bottom_pane.questions {
++            questions.cancel_touch();
++        }
+         if self.bottom_pane.has_active_view() {
+             return false;
+         }
+@@ -130,64 +133,103 @@ impl ChatWidget {
+             if interrupting {
+                 self.pause_active_goal_for_interrupt();
+             }
+-            let submission = self
+-                .bottom_pane
+-                .questions
+-                .as_mut()
+-                .and_then(|q| q.submission.take());
+-            if let Some(submission) = submission {
+-                let (text, queued) = match submission {
+-                    QuestionSubmission::Submit(text) => (text, false),
+-                    QuestionSubmission::Queue(text) => (text, true),
+-                };
+-                if self.blocks_direct_input {
+-                    self.add_error_message(PARENT_OWNED_INPUT_MESSAGE.to_string());
+-                    return true;
+-                }
+-                if self.has_misalignment_policy_violation() {
+-                    return true;
+-                }
+-                let main = self.bottom_pane.composer_draft_snapshot();
+-                let accepted = if queued
+-                    || self.input_queue.submissions_paused()
+-                    || self.is_plan_streaming_in_tui()
+-                    || self.input_queue.user_turn_pending_start
+-                        && !self.turn_lifecycle.agent_turn_running
+-                    || self.only_user_shell_commands_running()
+-                {
+-                    self.queue_user_message_with_options_and_source(
+-                        UserMessage::from(text),
+-                        QueuedInputAction::Plain,
+-                        Vec::new(),
+-                        UserMessageSource::QuestionAnswer,
+-                    )
+-                } else {
+-                    self.submit_user_message_with_history_and_shell_escape_policy(
+-                        UserMessage::from(text),
+-                        UserMessageHistoryRecord::UserMessageText,
+-                        ShellEscapePolicy::Disallow,
+-                        UserMessageSource::QuestionAnswer,
+-                    )
+-                    .0
+-                };
+-                if accepted {
+-                    if let Some(questions) = &mut self.bottom_pane.questions {
+-                        questions.accept_answer();
+-                    }
+-                } else if self.bottom_pane.composer_draft_snapshot() != main {
+-                    let cursor = main.cursor;
+-                    self.restore_composer_state(ThreadComposerState {
+-                        text: main.text,
+-                        text_elements: main.text_elements,
+-                        local_images: main.local_images,
+-                        remote_image_urls: main.remote_image_urls,
+-                        mention_bindings: main.mention_bindings,
+-                        pending_pastes: main.pending_pastes,
+-                    });
+-                    self.bottom_pane.set_composer_cursor(cursor);
++            self.submit_pending_question_answer();
++        }
++        self.request_redraw();
++        true
++    }
++
++    fn submit_pending_question_answer(&mut self) {
++        let submission = self
++            .bottom_pane
++            .questions
++            .as_mut()
++            .and_then(|q| q.submission.take());
++        if let Some(submission) = submission {
++            let (text, queued) = match submission {
++                QuestionSubmission::Submit(text) => (text, false),
++                QuestionSubmission::Queue(text) => (text, true),
++            };
++            if self.blocks_direct_input {
++                self.add_error_message(PARENT_OWNED_INPUT_MESSAGE.to_string());
++                return;
++            }
++            if self.has_misalignment_policy_violation() {
++                return;
++            }
++            let main = self.bottom_pane.composer_draft_snapshot();
++            let accepted = if queued
++                || self.input_queue.submissions_paused()
++                || self.is_plan_streaming_in_tui()
++                || self.input_queue.user_turn_pending_start
++                    && !self.turn_lifecycle.agent_turn_running
++                || self.only_user_shell_commands_running()
++            {
++                self.queue_user_message_with_options_and_source(
++                    UserMessage::from(text),
++                    QueuedInputAction::Plain,
++                    Vec::new(),
++                    UserMessageSource::QuestionAnswer,
++                )
++            } else {
++                self.submit_user_message_with_history_and_shell_escape_policy(
++                    UserMessage::from(text),
++                    UserMessageHistoryRecord::UserMessageText,
++                    ShellEscapePolicy::Disallow,
++                    UserMessageSource::QuestionAnswer,
++                )
++                .0
++            };
++            if accepted {
++                if let Some(questions) = &mut self.bottom_pane.questions {
++                    questions.accept_answer();
+                 }
++            } else if self.bottom_pane.composer_draft_snapshot() != main {
++                let cursor = main.cursor;
++                self.restore_composer_state(ThreadComposerState {
++                    text: main.text,
++                    text_elements: main.text_elements,
++                    local_images: main.local_images,
++                    remote_image_urls: main.remote_image_urls,
++                    mention_bindings: main.mention_bindings,
++                    pending_pastes: main.pending_pastes,
++                });
++                self.bottom_pane.set_composer_cursor(cursor);
+             }
+         }
++    }
++
++    pub(crate) fn cancel_question_touch(&mut self) {
++        if let Some(questions) = &mut self.bottom_pane.questions {
++            questions.cancel_touch();
++        }
++    }
++
++    pub(crate) fn handle_question_mouse(&mut self, event: crossterm::event::MouseEvent) -> bool {
++        let expanded = self
++            .bottom_pane
++            .questions
++            .as_ref()
++            .is_some_and(|q| q.expanded);
++        if self.bottom_pane.has_active_view()
++            || (!expanded && !self.bottom_pane.no_modal_or_popup_active())
++        {
++            if let Some(questions) = &mut self.bottom_pane.questions {
++                questions.invalidate_touch();
++            }
++            return false;
++        }
++        let Some(questions) = &mut self.bottom_pane.questions else {
++            return false;
++        };
++        if !questions.handle_touch(event) {
++            return false;
++        }
++        if let Some(key) = questions.touch_key.take() {
++            self.handle_question_key(key);
++        } else {
++            self.submit_pending_question_answer();
++        }
+         self.request_redraw();
+         true
+     }
+diff --git a/codex-rs/tui/src/chatwidget/tests/questions_tests.rs b/codex-rs/tui/src/chatwidget/tests/questions_tests.rs
+index 7962e84..3c9f5a0 100644
+--- a/codex-rs/tui/src/chatwidget/tests/questions_tests.rs
++++ b/codex-rs/tui/src/chatwidget/tests/questions_tests.rs
+@@ -677,6 +677,7 @@ async fn expanded_question_yields_mouse_to_terminal_for_links() {
+     let (mut chat, _rx, _ops) = make_chatwidget_manual(/*model_override*/ None).await;
+     let url = "https://example.com/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/r2/overview";
+     chat.add_async_questions("message", &[question(url, /*options*/ None)]);
++    chat.bottom_pane.question_editor().touch_enabled = false;
+     assert_eq!(chat.mouse_capture(/*owned_screen*/ true), Inherit);
+     chat.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::ALT));
+     assert_eq!(chat.mouse_capture(/*owned_screen*/ true), Disabled);
+@@ -1174,3 +1175,79 @@ async fn retried_question_answers_keep_separate_envelopes_and_order() {
+         assert_eq!(retried, original);
+     }
+ }
++
++#[tokio::test]
++async fn touch_expanded_question_retains_mouse_capture() {
++    use crate::tui::MouseCapture::Inherit;
++    let (mut chat, _rx, _ops) = make_chatwidget_manual(None).await;
++    chat.add_async_questions("touch", &[question("Touch?", None)]);
++    chat.bottom_pane.question_editor().touch_enabled = true;
++    chat.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::ALT));
++    assert_eq!(chat.mouse_capture(true), Inherit);
++}
++
++fn touch_question_at(chat: &ChatWidget, label: &str) -> (u16, u16) {
++    let area = Rect::new(0, 0, 80, chat.desired_height(80));
++    let mut buf = Buffer::empty(area);
++    chat.render(area, &mut buf);
++    for row in 0..area.height {
++        let text: String = (0..area.width)
++            .map(|col| buf[(col, row)].symbol())
++            .collect();
++        if let Some(index) = text.find(label) {
++            return (
++                unicode_width::UnicodeWidthStr::width(&text[..index]) as u16,
++                row,
++            );
++        }
++    }
++    panic!("missing question label {label}");
++}
++
++#[tokio::test]
++async fn touch_question_delivery_preserves_draft_and_respects_queue_and_rejection() {
++    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
++    for mode in 0..3 {
++        let (mut chat, _rx, mut ops) = make_chatwidget_manual(None).await;
++        open_questions(&mut chat, Some(vec!["Touch choice".into()]));
++        chat.bottom_pane.question_editor().touch_enabled = true;
++        chat.bottom_pane
++            .set_composer_text("main draft".into(), Vec::new(), Vec::new());
++        chat.input_queue.suppress_queue_autosend = mode == 1;
++        chat.blocks_direct_input = mode == 2;
++        let (column, row) = touch_question_at(&chat, "Touch choice");
++        for kind in [
++            MouseEventKind::Down(MouseButton::Left),
++            MouseEventKind::Up(MouseButton::Left),
++        ] {
++            assert!(chat.handle_question_mouse(MouseEvent {
++                kind,
++                column,
++                row,
++                modifiers: KeyModifiers::NONE
++            }));
++        }
++        assert_eq!(chat.bottom_pane.composer_text(), "main draft");
++        assert_eq!(question_count(&chat), if mode == 2 { 2 } else { 1 });
++        if mode == 0 {
++            assert_answer(ops.try_recv().unwrap(), "> First?\n\nTouch choice");
++        } else if mode == 1 {
++            assert_eq!(
++                chat.pop_latest_queued_composer_state().unwrap().text,
++                "> First?\n\nTouch choice"
++            );
++            assert!(ops.try_recv().is_err());
++        } else {
++            assert!(ops.try_recv().is_err());
++        }
++        // The release that delivered the first answer cannot act on the next question.
++        touch_question_at(&chat, if mode == 2 { "Touch choice" } else { "Second?" });
++        chat.handle_question_mouse(MouseEvent {
++            kind: MouseEventKind::Up(MouseButton::Left),
++            column,
++            row,
++            modifiers: KeyModifiers::NONE,
++        });
++        assert!(ops.try_recv().is_err());
++    }
++}
