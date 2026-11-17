@@ -105,6 +105,7 @@ notices.mkdir()
 for name in ("LICENSE.upstream", "NOTICE.upstream"):
     (notices / name).write_bytes((project / "src" / name).read_bytes())
 (notices / "LICENSE.codex-touch").write_bytes((project / "LICENSE").read_bytes())
+(notices / "NOTICE.codex-touch").write_bytes((project / "NOTICE").read_bytes())
 (notices / "MODIFICATIONS.txt").write_text(
     "This package contains codex-touch modifications for asynchronous question, shortcut-hint, agent command center and interrupt-hint touch interaction.\n"
     "See touch-build.json for the pinned upstream commit and patch digest.\n")

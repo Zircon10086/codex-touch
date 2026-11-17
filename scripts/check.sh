@@ -36,16 +36,23 @@ else
     fail 'Git is required (directly or through termux-run).'
 fi
 
-for path in README.md LICENSE VERSION CHANGELOG.md AGENTS.md \
+for path in README.md LICENSE NOTICE VERSION CHANGELOG.md AGENTS.md CONTRIBUTING.md \
     .gitignore .gitattributes .editorconfig docs/design.md \
-    docs/development.md docs/termux-touch.md src/README.md tests/README.md scripts/check.sh \
+    docs/development.md docs/build.md docs/termux-touch.md src/README.md tests/README.md scripts/check.sh \
     scripts/probe-termux-ime.sh tests/probe_pty.py upstream.json \
     scripts/build-baseline.sh scripts/prepare-lock.py tests/test_prepare_lock.py \
     tests/baseline_smoke.py docs/baseline-build.md scripts/build-touch.sh \
     scripts/prepare-touch.py scripts/run-touch.sh scripts/test-touch.sh tests/touch_pty.py \
-    src/async-question-touch.patch src/LICENSE.upstream src/NOTICE.upstream docs/phase1.md docs/shortcut-touch.md tests/test_prepare_touch.py; do
+    src/async-question-touch.patch src/LICENSE.upstream src/NOTICE.upstream docs/phase1.md docs/shortcut-touch.md tests/test_prepare_touch.py \
+    .github/workflows/check.yml; do
     [[ -s "$path" ]] || fail "Missing or empty file: $path"
 done
+
+cmp -s LICENSE src/LICENSE.upstream || fail 'Project license must match the pinned Apache-2.0 text.'
+python3 - <<'PYTHON'
+from pathlib import Path
+assert Path("src/NOTICE.upstream").read_bytes() in Path("NOTICE").read_bytes(), "Root NOTICE must retain upstream notices"
+PYTHON
 
 version="$(cat VERSION)"
 [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \

@@ -9,7 +9,7 @@
 `baseline_smoke.py` 验证实际构建包的版本和辅助程序、app-server 初始化，以及回环假模型驱动的代码执行和回复；另在合成 PTY 中验证默认后台模式的 TUI，并停止测试后台服务。使用独立临时 HOME/CODEX_HOME，只向本机假服务发送合成数据。它需要先完成基线构建，通过统一入口显式运行：
 
 ```sh
-bash scripts/check.sh --baseline-package /home/developer/codex-touch-build/packages/baseline-0.169.0
+bash scripts/check.sh --baseline-package "$HOME/codex-touch-build/packages/baseline-0.169.0"
 ```
 
 不传 `--baseline-package` 时不会执行已构建 Codex 的集成验收。

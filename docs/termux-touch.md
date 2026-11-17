@@ -9,7 +9,7 @@
 
 1. [Termux TerminalView][view] 在手指抬起时，如果开启了鼠标上报、没有滑动且不在选文，会连续发出一次左键按下和释放。它按字体度量把像素转成字符格；手指滑动则走滚轮路径。两次鼠标报告都来自同一次抬手，不能用它们之间的时间推断手指按了多久。
 2. [TerminalEmulator.sendMouseEvent][emulator] 在 SGR 模式下把第 8 列第 30 行的这次点按写作 `ESC[<0;8;30M` 和 `ESC[<0;8;30m`。协议坐标从 1 开始，crossterm 交给 TUI 的坐标从 0 开始。**进入 TUI 后，普通手指点按和鼠标左键点击没有来源标识。**
-3. `crcodex` 的交互进程继承 Termux 的 PTY。Codex 的[终端模式设置][capture]打开鼠标上报时请求 SGR 编码；[事件流][event-stream]生成 `TuiEvent::Mouse`。宿主命令桥 `termux-run` 没有交互 PTY，不参与这条输入链路。
+3. Debian 中 Codex 的交互进程继承 Termux 的 PTY（测试设备使用自己的 `crcodex` 启动器）。Codex 的[终端模式设置][capture]打开鼠标上报时请求 SGR 编码；[事件流][event-stream]生成 `TuiEvent::Mouse`。宿主命令桥 `termux-run` 没有交互 PTY，不参与这条输入链路。
 4. [Back to bottom][follow] 保存实际绘制的按钮区域，按下时记住命中，释放仍在区域内才跳到底部。[主输入框][textarea]也已有按字符格放光标、拖选和滚轮处理。问题出在具体视图，不需要重写触摸解码器。
 
 ## 同一二进制的对照实验
@@ -45,7 +45,7 @@
 仓库提供[独立诊断脚本](../scripts/probe-termux-ime.sh)。在一个**新开的普通 Termux shell** 中运行，不在 Codex、tmux 或 `termux-run` 里跑。脚本只启用自己测试用的 1000/1006 模式。启动每一轮后先用系统返回键收起输入法（若已隐藏则跳过），确认仍在探针画面，再单指轻点第 2 行的 `[ Test input ]`。
 
 ```sh
-cd /storage/emulated/0/Agent/codex-touch
+# 在宿主 Termux 可访问的项目克隆目录中运行
 bash scripts/probe-termux-ime.sh
 # 第一轮结束后，用相同条件再跑：
 bash scripts/probe-termux-ime.sh --ime-window
@@ -57,7 +57,7 @@ bash scripts/probe-termux-ime.sh --ime-window
 
 不推荐从 chroot 发送系统级模拟按键，或用中间 PTY 从 ANSI 文字猜选项：前者不知道当前窗口及键盘可见性，后者在换行、重绘、主题及异步问题切换时会失去语义。全程关闭鼠标上报虽然能恢复 Termux 的普通点按，却也会破坏用户已经在用的滚动和按钮。若硬性要求两端都保持原版，可用独立 app-server 客户端绘制自己的 Android 控件，但那是另一个客户端，不能补回原终端的控件交互。
 
-本次没有构建／替换日用 Codex 或 Termux，也没有拷入上游源码。后续如分发修改后的程序，应分别保留 [Codex][codex-license] 和 [Termux Play][play-license] 的上游许可要求；本仓库自己的 MIT 声明不替代它们。
+本次没有构建／替换日用 Codex 或 Termux，也没有拷入上游源码。后续如分发修改后的程序，应分别保留 [Codex][codex-license] 和 [Termux Play][play-license] 的上游许可要求；本仓库当前的 Apache-2.0 声明不替代其他组件的许可证。
 
 [play-version]: https://github.com/termux-play-store/termux-apps/blob/cf69df7a8d2a4c496f5b2464d0365a63a58716c5/termux-app/build.gradle.kts#L20-L21
 [view]: https://github.com/termux-play-store/termux-apps/blob/cf69df7a8d2a4c496f5b2464d0365a63a58716c5/terminal-view/src/main/java/com/termux/view/TerminalView.java#L119-L164

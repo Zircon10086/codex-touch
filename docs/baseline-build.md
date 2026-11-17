@@ -11,7 +11,7 @@
 ## 构建依赖
 
 Debian 包：`build-essential cmake pkg-config libssl-dev libcap-dev lld git`。
-Python 3 和 HTTPS 根证书同样需要可用。Rust 通过 rustup 安装上述固定版本。
+Python 3.11+ 和 HTTPS 根证书同样需要可用。Rust 通过 rustup 安装上述固定版本。
 这里需要直接访问 guest 源码目录的 Git，以及针对 glibc 的 C/C++ 编译器。
 
 无需预先安装 just 或 Android SDK。其他依赖以固定源码实际构建结果为准。
@@ -54,26 +54,26 @@ Cargo 自身的下载缓存位于 `~/.cargo`。即便 V8 使用上游预编译�
 
 这里的“手机本地构建”指 Codex 及其自有辅助程序在手机上编译；第三方 V8 和 ripgrep 使用上游构建流程指定的预编译依赖。语音发行包和 Android APK 不属于本轮构建范围。
 
-源码和依赖的上游许可证继续适用。本仓库 MIT 许可证不替代 Codex 的 Apache-2.0 或其他依赖的许可证。
+源码和依赖的上游许可证继续适用。本仓库当前同样采用 Apache-2.0，第三方组件仍保留各自许可证。
 
 ## 验收状态
 
 2026-11-16：基线构建和统一集成验收完成。程序包位于：
 
 ```text
-/home/developer/codex-touch-build/packages/baseline-0.169.0
+${HOME}/codex-touch-build/packages/baseline-0.169.0
 ```
 
 无需加载日用配置的版本检查：
 
 ```sh
-/home/developer/codex-touch-build/packages/baseline-0.169.0/bin/codex --version
+"$HOME/codex-touch-build/packages/baseline-0.169.0/bin/codex" --version
 ```
 
 集成验收命令：
 
 ```sh
-bash scripts/check.sh --baseline-package /home/developer/codex-touch-build/packages/baseline-0.169.0
+bash scripts/check.sh --baseline-package "$HOME/codex-touch-build/packages/baseline-0.169.0"
 ```
 
 通过范围：程序包布局与版本、辅助程序启动、app-server 初始化、回环假模型驱动的 V8 代码执行及 shell/ripgrep 调用，以及默认后台服务模式下 TUI 在合成 PTY 中显示最终回复并正常退出。测试使用临时 HOME/CODEX_HOME，退出后停止测试后台服务并清理临时文件。自动生成会话标题会多发一次模型请求，验收依据具体工具结果与聊天回复，不依赖总请求数。

@@ -1,44 +1,63 @@
 # codex-touch
 
-为 Termux 中的 Codex 提供触摸操作支持的组件。
+为 Termux 中的 Codex 增加触摸操作，让手机上缺少 Shift 等组合键时，也能点击提示文字执行操作。
 
-当前版本：**0.1.0**（已发布框架基线）。未发布开发版包含异步问答触摸和快捷键提示点击：点选答案、操作底部提示、打开快捷键帮助，以及通过点击完成换行、模式切换、Agent command center 操作和工作中断。第一阶段主要路径已通过真机验收；新增快捷键功能的验证范围见下方文档。Android 自动弹键盘尚未实现。
+本项目维护针对 **Codex 0.169.0** 的 Rust TUI 源码补丁和手机构建工具，生成独立的适配版客户端。使用已有的鼠标协议和运行时快捷键处理，不需要修改 Termux APK。项目独立维护，与 OpenAI 无隶属关系。
 
-[首次调查：问答点选与 Android 软键盘](docs/termux-touch.md) 记录原版行为、源码位置、建议的 Codex 补丁，以及一个无需修改 APK 的键盘实验。
+当前版本号 **0.1.0** 对应历史框架基线；`main` 包含下表中的新增功能，记录在 [Unreleased](CHANGELOG.md)。当前公开源码尚未发布 GitHub Release 或提供预编译下载。
 
-[手机本地基线构建](docs/baseline-build.md) 提供固定上游提交和 Debian ARM64 构建入口。Codex 0.169.0 基线已在手机构建并通过隔离的工具调用与 TUI 验收，可作为触摸适配前的对照版本。
+## 功能与范围
 
-[第一阶段：异步问答触摸](docs/phase1.md) 提供开发版行为、构建/启动命令、自动与真机验证结果，以及后续待办。
+| 位置 | 触摸操作 |
+| --- | --- |
+| 异步问答 | 点摘要展开、点选答案、Other/自由编辑、提交、跳过与前后题提示 |
+| 主输入区 | 点击帮助、换行、模式等提示；有草稿时仍可打开帮助与插入换行 |
+| 快捷键帮助 | 点击完整显示的独立动作，支持运行时单键和两段快捷键 |
+| Agent command center | 点击任务行选中、再点已选中行打开；筛选、分组、底部提示与帮助动作 |
+| 工作状态 | 点击完整显示的 `esc to interrupt` 中断任务，拖动不会激活 |
 
-[快捷键提示点击](docs/shortcut-touch.md) 提供当前开发包的启动命令、点击覆盖及验证记录；有草稿时也能点击帮助和换行入口。
+适用于默认全屏 TUI，通过 `CODEX_TOUCH=1` 显式启用。普通同步问答、其他确认弹窗、部分合并快捷键参考行和 `--no-alt-screen` 尚未适配。Android 软键盘仍需手动打开；异步答案编辑器的便捷换行入口和曾报告的多题卡住问题仍待后续处理。具体覆盖见[快捷键与中心操作](docs/shortcut-touch.md)。
 
-## 开发入口
+## 在手机上构建与运行
 
-在工作区运行：
+已验证环境为 ARM64 手机上的 Debian chroot，终端由 Termux 提供。当前目标是 `aarch64-unknown-linux-gnu`（glibc），产物需要在兼容的 Linux 用户环境中运行。其他 Termux 发行渠道、proot 和其他架构尚未完成同等验收。
+
+先准备 Debian 环境，再按[手机构建指南](docs/build.md)安装依赖及固定的 Rust 1.95.0。进入该环境，在 Linux 文件系统中执行：
 
 ```sh
-cd /storage/emulated/0/Agent/codex-touch
+git clone https://github.com/Zircon10086/codex-touch.git
+cd codex-touch
 bash scripts/check.sh
+bash scripts/build-touch.sh
+bash scripts/run-touch.sh
 ```
 
-检查依赖 Bash、Python 3（标准库）、Git 和常见 Unix 工具，不需要下载依赖。在 Debian guest 内没有 Git 时，检查脚本会通过现有的 `termux-run` 调用宿主 Git；直接在 Termux 中运行时使用本地 Git。
+默认构建目录为 `~/codex-touch-build`，生成包为 `packages/touch-agents-0.169.0`。构建脚本拒绝覆盖现有包；后续构建可以用 `CODEX_TOUCH_PACKAGE` 指定新目录。无需先构建原版基线。
 
-## 目录
+启动器只设置 `CODEX_TOUCH=1`，不改变 HOME/CODEX_HOME。与日用 Codex 在相同用户环境下运行时，会共用配置和会话；需要隔离时另设 `CODEX_HOME`。它不替换日用 `codex` 命令。
 
-```text
-src/                 上游触摸补丁与许可证
-tests/               合成 PTY 与程序包回归
-scripts/check.sh     仓库与合成 PTY 检查入口
-scripts/probe-termux-ime.sh  在独立交互终端中验证软键盘假设
-docs/termux-touch.md 版本、原版对照实验、适配路线与真机验证步骤
-docs/design.md       目标、待验证问题与首个功能的验收范围
-docs/development.md  开发、验证与版本管理约定
-VERSION              当前版本号
-CHANGELOG.md         版本变更记录
+完整构建需要下载依赖并占用较多空间：首轮基线实测约 18.1 GiB，加入测试缓存和四个保留包后约 32.57 GiB；这些是特定手机的记录，见[基线构建](docs/baseline-build.md)。脚本默认单任务并降低优先级。构建与测试缓存应放在 Linux 文件系统，避免 Android 共享存储的权限限制。
+
+## 验证与贡献
+
+2026-11-17：409 项去重 Rust 回归、隔离模型工具回合、SGR 鼠标 PTY 与终端恢复检查通过。用户已确认第一阶段主要点答路径可用，并在后续补齐后确认 Agent command center 与工作中断触摸测试通过。详细证据和待验收边界见[第一阶段记录](docs/phase1.md)及[快捷键记录](docs/shortcut-touch.md)；自动化测试不能替代 Android 输入法验收。
+
+```sh
+bash scripts/check.sh
+bash scripts/check.sh --upstream-source "$HOME/codex-touch-build/upstream" --rust-tests
+bash scripts/check.sh --touch-package "$HOME/codex-touch-build/packages/touch-agents-0.169.0"
 ```
 
-从 [设计说明](docs/design.md) 和 [开发指南](docs/development.md) 开始开发。项目采用独立 Git 仓库，默认分支为 `main`，版本标签使用 `vX.Y.Z`。
+基础检查只需要 Bash、Python 3.11+ 标准库、Git 和常见 Unix 工具。GitHub Actions 运行基础检查；Rust 编译和真实程序验收为显式的耗时步骤。贡献方式见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+## 文档与源码
+
+- [手机构建指南](docs/build.md)：依赖、首次构建、启动、重建与环境边界。
+- [设计说明](docs/design.md)与[开发指南](docs/development.md)：实现约定、检查和版本管理。
+- [首次调查](docs/termux-touch.md)：Termux 输入链路和软键盘实验。
+- [src/](src/README.md)：固定上游补丁、许可证和来源。
+- [tests/](tests/README.md)：合成输入、程序包和 PTY 验收。
 
 ## 许可证
 
-自有脚本和文档采用 [MIT](LICENSE)。Codex 上游补丁基于 Apache-2.0 源码，来源和许可见 [src/README.md](src/README.md)。
+当前源码采用 [Apache License 2.0](LICENSE)，与固定版本的上游 Codex 相同。版权、修改说明和上游声明见 [NOTICE](NOTICE) 与[源码来源](src/README.md)。第三方代码保留各自许可证；历史 `v0.1.0` 的 MIT 许可记录不变。

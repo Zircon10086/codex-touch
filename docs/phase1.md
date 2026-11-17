@@ -20,25 +20,27 @@
 在 Debian chroot 中运行（不是直接使用 Termux 的 Android 编译器）：
 
 ```sh
-cd /storage/emulated/0/Agent/codex-touch
+# 进入 Debian 中的项目克隆目录
 bash scripts/build-touch.sh
 bash scripts/run-touch.sh
 ```
 
-构建入口会验证上游提交，规范化已知锁文件，再应用并核对精确补丁。未知改动会使构建停止；已构建的基线包不会被覆盖。默认单任务、dev-small、LLD，复用 `~/codex-touch-build/target`。独立产物默认位于 `~/codex-touch-build/packages/touch-0.169.0`，包含上游辅助程序和 `touch-build.json`。
+构建入口会验证上游提交，规范化已知锁文件，再应用并核对精确补丁。未知改动会使构建停止；已构建的基线包不会被覆盖。默认单任务、dev-small、LLD，复用 `~/codex-touch-build/target`。第一阶段历史产物位于 `~/codex-touch-build/packages/touch-0.169.0`；当前脚本构建包含后续功能的 `touch-agents-0.169.0`，包含上游辅助程序和 `touch-build.json`。
 
 `CODEX_TOUCH_BUILD_DIR` 可指定 Linux 构建根目录，`CODEX_TOUCH_PACKAGE` 可指定新产物目录。现有包不自动覆盖。`run-touch.sh` 只为子进程开启开关，不修改日用启动器、配置或全局环境；直接运行同包 `bin/codex` 且不设置 `CODEX_TOUCH=1`，可对照原版鼠标行为。
 
-独立程序包不等于隔离会话：`run-touch.sh` 不改变 HOME 或 CODEX_HOME；在与 `crcodex` 相同的 chroot 中，默认共用 `/home/developer/.codex` 的配置与会话记录。自动化验收则显式使用临时 HOME/CODEX_HOME。
+独立程序包不等于隔离会话：`run-touch.sh` 不改变 HOME 或 CODEX_HOME；在同一 Linux 用户环境中，默认共用 `$HOME/.codex` 的配置与会话记录。自动化验收则显式使用临时 HOME/CODEX_HOME。
 
 持续构建需要控制手机温度和并发、保持 Termux 唤醒。构建脚本使用低优先级与单个 Cargo 任务；本次实测另使用构建目录中的资源监视器，每 2 秒采样电池温度，44°C 暂停、42.5°C 恢复进程组。最初 41.5°C 的恢复阈值在充电期间导致较长等待，已调整。尝试过 `taskset` 限制 CPU，但实测 Android 随后重新设置了进程亲和性，也曾因 CPU 0 不在当时允许集合中而启动失败，最终移除了该参数。因此不能把此设置当作持续限核的保证。不要将基线阶段的耗时当作此次测试构建耗时。
 
 ## 自动验收
 
+以下命令针对当前累计补丁；当前 PTY 包含后续功能检查，第一阶段旧包不能通过全部新检查。
+
 ```sh
 bash scripts/check.sh
 bash scripts/check.sh --upstream-source "$HOME/codex-touch-build/upstream" --rust-tests
-bash scripts/check.sh --touch-package "$HOME/codex-touch-build/packages/touch-0.169.0"
+bash scripts/check.sh --touch-package "$HOME/codex-touch-build/packages/touch-agents-0.169.0"
 ```
 
 - 基础检查：补丁语法、Python/Shell、仓库格式、既有锁文件与 IME 探针回归。

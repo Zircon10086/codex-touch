@@ -4,10 +4,9 @@
 
 ## 使用方法
 
-在与 `crcodex` 相同的 Debian chroot 中运行：
+准备步骤见[手机构建指南](build.md)。进入 Debian chroot 内的项目克隆目录后运行：
 
 ```sh
-cd /storage/emulated/0/Agent/codex-touch
 bash scripts/run-touch.sh
 ```
 
@@ -66,7 +65,7 @@ Rust 检查包含第一阶段范围，并增加提示手势、帮助列布局/�
 
 手机本地程序包约 599 MiB，该轮首次出包耗时 145.6 秒；只修正快照后重打包 6.2 秒，五个二进制校验值相同。构建记录在 `~/codex-touch-build/shortcut-build-record.json`。该轮 TUI 测试编译采样进程组 RSS 峰值约 7.07 GiB；单 Cargo 任务，未触发温控暂停。
 
-用户随后反馈大部分触摸测试已通过，同时指出 command center 和中断提示无法点击；这是概括性反馈，不代表上一轮每个条目均已真机验收。本轮补齐的两处仍待用户真机验收，PTY 不代表 Android 手指操作或输入法已验证。
+用户随后反馈大部分触摸测试已通过，同时指出 command center 和中断提示无法点击；这是概括性反馈，不代表上一轮每个条目均已真机验收。在补齐后，用户已明确反馈 Agent command center 与工作中断提示触摸测试通过；这不扩展为对所有细分动作或输入法的验收。PTY 的验证范围仍单独记录。
 
 建议真机按顺序确认：点击底部模式提示；输入两行中文（第二行用 `new line` 插入）；有草稿时点击帮助、再点 New line/Change mode/close；在多题问答中点 next question 与 prev question。缩窄窗口或折叠屏幕后再次操作，确认拖动提示不触发。
 
@@ -74,10 +73,10 @@ Rust 检查包含第一阶段范围，并增加提示手势、帮助列布局/�
 
 2026-11-17：增加独立视图的触摸路由，只让最上层组件接收点击；打开其他弹层时取消底层手势。状态组件自行登记完整中断提示区域，隐藏、截断、绑定或布局改变均取消旧点击。共享的帮助布局与手势代码继续复用，无新增依赖。
 
-建议真机验证：打开 agents，点任务行选中并再次打开；点 Working/Ready 等标签和窄屏箭头；点 `? help` 后执行 Search、Rename、Group 等动作，点 back 分别退出帮助与中心。运行一个可中断任务，先拖动 `esc to interrupt` 确认不中断，再轻点文字确认停止。
+可复现的真机检查步骤：打开 agents，点任务行选中并再次打开；点 Working/Ready 等标签和窄屏箭头；点 `? help` 后执行 Search、Rename、Group 等动作，点 back 分别退出帮助与中心。运行一个可中断任务，先拖动 `esc to interrupt` 确认不中断，再轻点文字确认停止。
 
 本轮验收通过：409 项去重 Rust 测试（7 项新增），七个筛选范围为 questions 75、selection_popup_common 10、request_user_input 90、shortcut 121、footer 91、live_center 16、status_indicator 29，范围有交集。原有状态动效快照保持不变；未运行整个上游套件。
 
 统一检查还通过程序包配套工具、V8/shell/rg 完整回合、默认 daemon TUI，以及扩展的触摸 PTY。新增 PTY 实测了 command center 状态筛选、帮助、运行时两段 Search 快捷键、分层返回、点击打开，以及假模型回合持续运行时“拖动不中断、点击中断”和退出恢复。整个测试使用临时 HOME/CODEX_HOME 与回环服务。
 
-手机增量出包 88.9 秒（含起始温控等待 2.1 秒），最终 Rust 回归 76.4 秒，程序包统一验收 86.8 秒（含起始降温等待 18.7 秒）；这些不是首次全新构建耗时。新包约 598.8 MiB，源码/依赖/缓存及四个包合计约 32.57 GiB；本轮测试编译采样进程组 RSS 峰值约 6.97 GiB。记录在 `~/codex-touch-build/agents-build-record.json`，保留旧包供回退。自动验收通过后，新增行为仍需用户在真实 Termux 中确认。
+手机增量出包 88.9 秒（含起始温控等待 2.1 秒），最终 Rust 回归 76.4 秒，程序包统一验收 86.8 秒（含起始降温等待 18.7 秒）；这些不是首次全新构建耗时。新包约 598.8 MiB，源码/依赖/缓存及四个包合计约 32.57 GiB；本轮测试编译采样进程组 RSS 峰值约 6.97 GiB。记录在 `~/codex-touch-build/agents-build-record.json`，保留旧包供回退。自动验收后，用户已在真实 Termux 中反馈本轮两处触摸测试通过。
