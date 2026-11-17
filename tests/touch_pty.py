@@ -129,7 +129,8 @@ class Handler(FixtureHandler):
                 emit({"type":"response.output_item.done","item":item})
             elif not title and primary==2:
                 self.server.continuation.set()
-                if not self.server.release.wait(55): return
+                # Bound each wait while allowing slower phone setup/interaction.
+                if not any(self.server.release.wait(55) for _ in range(3)): return
             else:
                 emit({"type":"response.output_item.done","item":{"type":"message","id":"touch-final","role":"assistant","content":[{"type":"output_text","text":"Touch fixture" if title else "TOUCH_PTY_OK"}]}})
             emit({"type":"response.completed","response":{"id":f"touch-{primary}","usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}})
@@ -141,7 +142,7 @@ def exercise(package):
     with tempfile.TemporaryDirectory(prefix="codex-touch-pty-") as directory:
         root=Path(directory); state=root/"state";state.mkdir();workspace=root/"workspace";workspace.mkdir()
         model={"slug":"touch-fixture","display_name":"touch-fixture","description":"Local synthetic fixture","base_instructions":"Use only the local synthetic tools.",
-               "default_reasoning_level":"medium","supported_reasoning_levels":[{"effort":"medium","description":"medium"}],
+               "default_reasoning_level":"medium","supported_reasoning_levels":[{"effort":level,"description":level} for level in ("low","medium","high")],
                "shell_type":"shell_command","visibility":"list","supported_in_api":True,"priority":0,
                "additional_speed_tiers":[],"service_tiers":[],"default_service_tier":None,"availability_nux":None,
                "upgrade":None,"default_reasoning_summary":"none","support_verbosity":False,"default_verbosity":None,
@@ -171,6 +172,13 @@ code_mode_host = true
 memories = false
 apps = false
 plugins = false
+[tui.keymap.editor]
+insert_newline = "shift-enter"
+[tui.keymap.global]
+find_transcript = "ctrl-x f3"
+[tui.keymap.chat]
+increase_reasoning_effort = "shift-up"
+decrease_reasoning_effort = "shift-down"
 [analytics]
 enabled = false
 [otel]
@@ -186,7 +194,7 @@ trust_level = "trusted"
         screen=Screen(110,38)
         fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack("HHHH",38,110,0,0))
         process=subprocess.Popen([str(binary),"--dangerously-bypass-approvals-and-sandbox","Run the local touch fixture."],cwd=workspace,env=env,stdin=slave,stdout=slave,stderr=slave,start_new_session=True)
-        raw=bytearray();answered={}
+        raw=bytearray();answered={};started=time.monotonic();shortcut_phase=False
         probes={b"\x1b[6n":b"\x1b[1;1R",b"\x1b]11;?":b"\x1b]11;rgb:0000/0000/0000\x1b\\",b"\x1b]10;?":b"\x1b]10;rgb:ffff/ffff/ffff\x1b\\",b"\x1b[?u":b"\x1b[?0u"}
         def pump(timeout=.2):
             if select.select([master],[],[],timeout)[0]:
@@ -198,19 +206,35 @@ trust_level = "trusted"
                 for probe,reply in probes.items():
                     count=raw.count(probe);previous=answered.get(probe,0)
                     if count>previous:os.write(master,reply*(count-previous));answered[probe]=count
-        def until(predicate,description):
-            end=time.monotonic()+30
+        def until(predicate,description,timeout=30):
+            end=time.monotonic()+timeout
             while time.monotonic()<end:
                 pump()
-                if predicate():return
+                if predicate():
+                    print(f"{time.monotonic()-started:.1f}s: {description}: passed", flush=True)
+                    return
                 if process.poll() is not None:break
             raise AssertionError(description+f" (requests={len(server.requests)}, exit={process.poll()})\n"+screen.text()+"\nraw tail: "+repr(bytes(raw[-1200:])))
         def mouse(pos,code=0,up=False):os.write(master,f"\x1b[<{code};{pos[0]};{pos[1]}{'m' if up else 'M'}".encode())
         def click(label):
             until(lambda:screen.find(label),f"Missing {label}")
-            pos=screen.find(label);mouse(pos);mouse(pos,up=True)
+            if not shortcut_phase:
+                pos=screen.find(label);mouse(pos);mouse(pos,up=True)
+                return
+            # The renderer may be between frames or processing queued model replies.
+            # Click one stable painted target; never retry a cancelled/failed click.
+            stable_since=time.monotonic();last=None;deadline=stable_since+5
+            while time.monotonic()<deadline:
+                pump(.05)
+                pos=screen.find(label)
+                current=(pos, "".join(screen.cells[pos[1]-1]) if pos else None, len(server.requests))
+                if current!=last:stable_since=time.monotonic();last=current
+                if pos and time.monotonic()-stable_since>=.25:
+                    mouse(pos);mouse(pos,up=True)
+                    return
+            raise AssertionError(f"Hint did not settle: {label}\n"+screen.text())
         try:
-            until(lambda:screen.find("3 questions") and server.continuation.is_set(),"No async summary")
+            until(lambda:screen.find("3 questions") and server.continuation.is_set(),"No async summary",timeout=120)
             assert screen.mouse,"Mouse reporting must be enabled"
             click("3 questions")
             until(lambda:screen.find("1 of 3") and screen.find("submit"),"Summary did not expand")
@@ -222,6 +246,11 @@ trust_level = "trusted"
             # A keyboard event provides a new observable repaint after the gesture.
             os.write(master,b"\x1b[B")
             until(lambda:screen.find("› 2. Beta selected") and screen.find("1 of 3"),"Drag submitted an answer")
+            # Existing Shift navigation must work by tapping its text as well.
+            click("next question")
+            until(lambda:screen.find("2 of 3") and screen.find("Named answer"),"Next hint did not navigate")
+            click("prev question")
+            until(lambda:screen.find("1 of 3") and screen.find("Beta selected"),"Previous hint did not navigate")
             click("Beta selected")
             until(lambda:screen.find("1 of 2"),"Choice was not accepted")
             click("Other")
@@ -245,11 +274,74 @@ trust_level = "trusted"
                 return all(answer in json.dumps(users) for answer in expected)
             until(lambda: delivered() and b"TOUCH_PTY_OK" in raw,
                   "Not all accepted answers were delivered as user input")
+            # Drain the final queued model replies before beginning idle composer actions.
+            settle_until=time.monotonic()+1
+            while time.monotonic()<settle_until:pump(.05)
+            shortcut_phase=True
+            # At a narrow phone width, mode switching has a direct touch entry.
+            until(lambda:screen.find("shift+tab mode"),"Idle mode hint missing")
+            pos=screen.find("shift+tab mode")
+            mouse(pos);mouse((pos[0]+1,pos[1]),32);mouse(pos,up=True)
+            os.write(master,b"\x1b[200~DRAFT_FIRST\x1b[201~")
+            until(lambda:screen.find("DRAFT_FIRST") and screen.find("new line"),"Draft lost newline entry")
+            assert not screen.find("Plan mode"),"Dragging mode hint activated it"
+            click("new line")
+            os.write(master,b"\x1b[200~DRAFT_SECOND\x1b[201~")
+            until(lambda:screen.find("DRAFT_SECOND"),"Second draft line missing")
+            first,second=screen.find("DRAFT_FIRST"),screen.find("DRAFT_SECOND")
+            assert first and second and second[1]>first[1],"Click did not insert a newline"
+            assert not any("DRAFT_FIRST" in json.dumps(r) for r in server.requests),"Newline submitted draft"
+            # Give the existing responsive reference enough height to expose all groups.
+            screen.resize(140,45);fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack("HHHH",45,140,0,0));os.killpg(process.pid,signal.SIGWINCH)
+            until(lambda:screen.find("for shortcuts") and screen.find("DRAFT_SECOND"),"Draft shortcuts entry missing")
+            click("for shortcuts")
+            until(lambda:screen.find("Keyboard shortcuts") and screen.find("Change mode"),"Help did not open with draft")
+            click("close")
+            until(lambda:not screen.find("Keyboard shortcuts") and screen.find("DRAFT_FIRST"),"Close lost draft")
+            click("for shortcuts")
+            click("Change mode")
+            until(lambda:screen.find("Plan mode (") and not screen.find("Keyboard shortcuts"),"Help mode action failed")
+            click("Plan mode")
+            until(lambda:screen.find("shift+tab mode"),"Footer mode action failed")
+            click("for shortcuts")
+            click("More reasoning")
+            until(lambda:not screen.find("Keyboard shortcuts"),"Reasoning action did not dismiss help")
+            click("for shortcuts")
+            click("New line")
+            until(lambda:not screen.find("Keyboard shortcuts"),"Help newline action did not dismiss help")
+            os.write(master,b"\x1b[200~DRAFT_THIRD\x1b[201~")
+            until(lambda:screen.find("DRAFT_THIRD"),"Third draft line missing")
+            assert screen.find("DRAFT_THIRD")[1]>screen.find("DRAFT_SECOND")[1],"Help newline did not edit draft"
+            # A runtime two-stroke binding must travel through the app chord matcher.
+            click("for shortcuts")
+            click("Find text")
+            until(lambda:screen.find("Find:") and not screen.find("Keyboard shortcuts"),"Chord did not open transcript search")
+            os.write(master,b"\x1b")
+            until(lambda:screen.find("DRAFT_THIRD") and screen.find("for shortcuts"),"Search close lost draft")
+            # Submit using the help action, then inspect the actual outgoing model input.
+            click("for shortcuts")
+            click("Send message")
+            def draft_request():
+                for request in server.requests:
+                    for item in request.get("input", []):
+                        if item.get("role") != "user":continue
+                        content=item.get("content", [])
+                        text=content if isinstance(content,str) else "".join(part.get("text", "") for part in content)
+                        if "DRAFT_FIRST\nDRAFT_SECOND\nDRAFT_THIRD" in text:return request
+                return None
+            until(lambda:draft_request() is not None,"Touch send did not deliver the exact multiline draft")
+            assert draft_request().get("reasoning", {}).get("effort")=="high","Shift-up hint did not change reasoning"
+            until(lambda:screen.find("shift+tab mode"),"Turn did not finish")
             os.write(master,b"\x04");until(lambda:process.poll() is not None,"TUI did not exit")
             assert process.returncode==0,process.returncode
             assert termios.tcgetattr(slave)==saved,"TTY attributes not restored"
             assert not screen.mouse,"Mouse reporting not disabled on exit"
-            print("PASS: touch PTY (expand, capture, resize, choice, Other, freeform, footer submit, delivery, tty cleanup).")
+            print("PASS: touch PTY (expand, capture, resize, choice, Other, freeform, footer submit/navigation, draft newline/help/close, mode, reasoning, runtime chord, multiline send, delivery, tty cleanup).")
+        except BaseException:
+            # Only the temporary fixture's isolated logs; never the user's Codex state.
+            for diagnostic in state.rglob("*.log"):
+                print(f"Fixture diagnostic {diagnostic.relative_to(state)}:\n" + diagnostic.read_text(errors="replace")[-12000:])
+            raise
         finally:
             server.release.set()
             if process.poll() is None:

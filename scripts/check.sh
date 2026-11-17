@@ -43,7 +43,7 @@ for path in README.md LICENSE VERSION CHANGELOG.md AGENTS.md \
     scripts/build-baseline.sh scripts/prepare-lock.py tests/test_prepare_lock.py \
     tests/baseline_smoke.py docs/baseline-build.md scripts/build-touch.sh \
     scripts/prepare-touch.py scripts/run-touch.sh scripts/test-touch.sh tests/touch_pty.py \
-    src/async-question-touch.patch src/LICENSE.upstream src/NOTICE.upstream docs/phase1.md tests/test_prepare_touch.py; do
+    src/async-question-touch.patch src/LICENSE.upstream src/NOTICE.upstream docs/phase1.md docs/shortcut-touch.md tests/test_prepare_touch.py; do
     [[ -s "$path" ]] || fail "Missing or empty file: $path"
 done
 

@@ -1,3 +1,85 @@
+diff --git a/codex-rs/tui/src/app.rs b/codex-rs/tui/src/app.rs
+index ddddc61..d11715a 100644
+--- a/codex-rs/tui/src/app.rs
++++ b/codex-rs/tui/src/app.rs
+@@ -854,6 +854,13 @@ impl App {
+         app_server: &mut AppServerSession,
+         event: TuiEvent,
+     ) -> Result<AppRunControl> {
++        if !matches!(&event, TuiEvent::Mouse(_) | TuiEvent::Draw)
++            || !tui.is_owned_screen()
++            || self.overlay.is_some()
++            || !self.chat_widget.no_modal_or_popup_active()
++        {
++            self.chat_widget.cancel_shortcut_touch();
++        }
+         self.transcript_view
+             .sync_patch_approval(self.chat_widget.current_patch_approval());
+         // A chooser action must never decide a modal that has not been painted yet.
+@@ -945,6 +952,51 @@ impl App {
+             }
+             self.backtrack.select_exit_key = None;
+         }
++        if let TuiEvent::Mouse(mouse) = &event
++            && tui.is_owned_screen()
++            && self.overlay.is_none()
++            && self.chat_widget.shortcut_touch_active()
++        {
++            if mouse.kind != MouseEventKind::Moved {
++                self.refresh_owned_transcript(tui)?;
++            }
++            match self.chat_widget.handle_shortcut_touch(*mouse) {
++                crate::shortcut_touch::Outcome::Ignored => {}
++                crate::shortcut_touch::Outcome::Consumed => {
++                    tui.frame_requester().schedule_frame();
++                    return Ok(AppRunControl::Continue);
++                }
++                crate::shortcut_touch::Outcome::Activate(crate::shortcut_touch::Action::Keys(
++                    hint,
++                )) => {
++                    self.cancel_pending_key_chord();
++                    let keys = match hint {
++                        crate::key_hint::ShortcutHint::Single(key) => vec![key],
++                        crate::key_hint::ShortcutHint::Chord { prefix, completion } => {
++                            vec![prefix, completion]
++                        }
++                    };
++                    for key in keys {
++                        for kind in [KeyEventKind::Press, KeyEventKind::Release] {
++                            let result = Box::pin(self.handle_tui_event(
++                                tui,
++                                app_server,
++                                TuiEvent::Key(crate::shortcut_touch::key_event(key, kind)),
++                            ))
++                            .await?;
++                            if !matches!(result, AppRunControl::Continue) {
++                                return Ok(result);
++                            }
++                        }
++                    }
++                    tui.frame_requester().schedule_frame();
++                    return Ok(AppRunControl::Continue);
++                }
++                crate::shortcut_touch::Outcome::Activate(_) => {
++                    unreachable!("help actions are local to the composer")
++                }
++            }
++        }
+         if self.continue_passive_link_drag(tui, &event)?
+             || self.handle_divider_event(tui, &event).await?
+             || self.handle_rendered_selection_event(tui, &event)?
+diff --git a/codex-rs/tui/src/app/agent_center/hints.rs b/codex-rs/tui/src/app/agent_center/hints.rs
+index 1d59ffa..03c78a4 100644
+--- a/codex-rs/tui/src/app/agent_center/hints.rs
++++ b/codex-rs/tui/src/app/agent_center/hints.rs
+@@ -105,6 +105,7 @@ impl AgentsOverviewView {
+         let filter = self.center_filter_hint();
+         if !filter.is_empty() {
+             view.entries.push(Shortcut {
++                hint: None,
+                 key: filter,
+                 action: "Filter",
+             });
 diff --git a/codex-rs/tui/src/app/owned_transcript.rs b/codex-rs/tui/src/app/owned_transcript.rs
 index 37e406c..1e719da 100644
 --- a/codex-rs/tui/src/app/owned_transcript.rs
@@ -23,6 +105,28 @@ index 37e406c..1e719da 100644
              if self
                  .conversation_frame
                  .chooser_area()
+diff --git a/codex-rs/tui/src/app/snapshots/codex_tui__app__owned_transcript__empty_state_animation_tests__fresh_thread_header.snap b/codex-rs/tui/src/app/snapshots/codex_tui__app__owned_transcript__empty_state_animation_tests__fresh_thread_header.snap
+index 789d6e4..9d4c705 100644
+--- a/codex-rs/tui/src/app/snapshots/codex_tui__app__owned_transcript__empty_state_animation_tests__fresh_thread_header.snap
++++ b/codex-rs/tui/src/app/snapshots/codex_tui__app__owned_transcript__empty_state_animation_tests__fresh_thread_header.snap
+@@ -4,7 +4,7 @@ expression: "format!(\"enabled:\\n{}\\n---\\ndisabled:\\n{}\", text(after), text
+ ---
+ enabled:
+ 
+-  >_ OpenAI Codex (v0.0.0)
++  >_ OpenAI Codex (v0.169.0)
+      /tmp/project
+ 
+ 
+@@ -50,7 +50,7 @@ enabled:
+ ---
+ disabled:
+ 
+-  >_ OpenAI Codex (v0.0.0)
++  >_ OpenAI Codex (v0.169.0)
+      /tmp/project
+ 
+ 
 diff --git a/codex-rs/tui/src/bottom_pane/async_questions/input.rs b/codex-rs/tui/src/bottom_pane/async_questions/input.rs
 index cc4fb88..89960b8 100644
 --- a/codex-rs/tui/src/bottom_pane/async_questions/input.rs
@@ -803,8 +907,446 @@ index 7023328..30ab202 100644
          self.visible_options.set((0, 0));
          let incoming = std::mem::replace(&mut self.state, saved);
          let mut answered_ids = incoming.answered_ids;
+diff --git a/codex-rs/tui/src/bottom_pane/chat_composer.rs b/codex-rs/tui/src/bottom_pane/chat_composer.rs
+index db3b79f..436fb8a 100644
+--- a/codex-rs/tui/src/bottom_pane/chat_composer.rs
++++ b/codex-rs/tui/src/bottom_pane/chat_composer.rs
+@@ -19,6 +19,11 @@
+ //! Shortcut help expands above the composer, with its close hint replacing the final shortcuts row
+ //! so input and persistent status stay anchored when help opens or closes.
+ //! Escape dismisses visible shortcut help before editing, transcript backtracking, or interruption.
++//! With CODEX_TOUCH=1, rendered shortcut labels accept stationary press/release taps.
++//! Drafts retain touch help and newline entries; help opens without inserting `?` or losing text.
++//! Hint actions re-enter the app's keyboard routing (including remapped chords). Focus loss,
++//! intervening input, layout changes, and dragging cancel pending taps. Help actions dismiss
++//! the reference before dispatch, so newline still edits the draft and never submits it.
+ //! Fullscreen limits the composer height; wheel browsing preserves the caret until editor input.
+ //! Transcript interactions borrow the hint footer through `ComposerRenderOptions`;
+ //! its resolved presentation drives height, painting, and the focused cursor together.
+@@ -407,6 +412,7 @@ mod footer_state;
+ mod history_search;
+ mod inline_input;
+ mod mouse;
++mod shortcut_touch;
+ pub(crate) use mouse::ClipboardPasteTarget;
+ mod passive_hints;
+ mod paste_input;
+@@ -781,6 +787,7 @@ impl ChatComposer {
+             history: ChatComposerHistory::new(),
+             command_center_enabled: false,
+             footer: Box::new(FooterState {
++                shortcut_touch: std::cell::RefCell::new(crate::shortcut_touch::ShortcutTouch::new()),
+                 quit_shortcut_expires_at: None,
+                 quit_shortcut_key: key_hint::ctrl(KeyCode::Char('c')),
+                 esc_backtrack_hint: false,
+@@ -4671,6 +4678,7 @@ impl ChatComposer {
+             popup: popup_rect,
+             footer: footer_rect,
+         } = self.layout_with_options(area, options);
++        let mut shortcut_targets = Vec::new();
+         self.render_status_surface(status, buf, options);
+         if self.popups.active.is_above_composer()
+             && options.command_popup_placement != CommandPopupPlacement::Hidden
+@@ -4728,16 +4736,33 @@ impl ChatComposer {
+             _ if options.unfocused => {}
+             (_, Some(hints)) => {
+                 let hint_area = passive_hints::hint_area(footer_rect);
+-                painted_warning = hints.render(hint_area, buf);
++                painted_warning = hints.render(hint_area, buf, &mut shortcut_targets);
+             }
+             (Some(footer), None) => {
+                 self.render_transcript_footer(transcript_hint_area, buf, footer, warning_area);
+             }
+             (None, None) if self.shortcuts_above_composer(options) => {
+                 let props = self.hint_footer_props();
+-                super::shortcut_overlay::render(&props, inset_footer_hint_area(popup_rect), buf);
+-                super::shortcut_overlay::close_hint(&props, transcript_hint_area.width)
+-                    .render(transcript_hint_area, buf);
++                shortcut_targets.extend(super::shortcut_overlay::render(
++                    &props,
++                    inset_footer_hint_area(popup_rect),
++                    buf,
++                ));
++                let close = super::shortcut_overlay::close_hint(&props, transcript_hint_area.width);
++                if close.width() <= usize::from(transcript_hint_area.width)
++                    && transcript_hint_area.height > 0
++                {
++                    shortcut_targets.push(crate::shortcut_touch::Target::new(
++                        Rect::new(
++                            transcript_hint_area.x,
++                            transcript_hint_area.y,
++                            close.width() as u16,
++                            1,
++                        ),
++                        crate::shortcut_touch::Action::Close,
++                    ));
++                }
++                close.render(transcript_hint_area, buf);
+             }
+             (None, None) => {
+                 let hint_rect = warning_notice::before_warning(footer_rect, warning_area);
+@@ -4835,6 +4860,22 @@ impl ChatComposer {
+                 }
+             }
+         }
++        if options.unfocused
++            || options.is_dialog_backdrop
++            || options.footer.is_some()
++            || !self.has_focus
++            || !self.draft.input_enabled
++            || self.blocks_direct_input
++            || self.popup_active()
++            || self.is_in_paste_burst()
++            || !self.footer.shortcut_touch.borrow().enabled
++        {
++            shortcut_targets.clear();
++        }
++        self.footer
++            .shortcut_touch
++            .borrow_mut()
++            .set_layout(area, shortcut_targets);
+         self.footer.warning_notice_area.set(painted_warning);
+         if let Some((warning_area, line)) = warning_notice {
+             line.render(warning_area, buf);
+diff --git a/codex-rs/tui/src/bottom_pane/chat_composer/footer_state.rs b/codex-rs/tui/src/bottom_pane/chat_composer/footer_state.rs
+index 92124a0..2337556 100644
+--- a/codex-rs/tui/src/bottom_pane/chat_composer/footer_state.rs
++++ b/codex-rs/tui/src/bottom_pane/chat_composer/footer_state.rs
+@@ -370,6 +370,7 @@ impl super::ChatComposer {
+ }
+ 
+ pub(super) struct FooterState {
++    pub(super) shortcut_touch: std::cell::RefCell<crate::shortcut_touch::ShortcutTouch>,
+     pub(super) quit_shortcut_expires_at: Option<Instant>,
+     pub(super) quit_shortcut_key: KeyBinding,
+     pub(super) esc_backtrack_hint: bool,
+diff --git a/codex-rs/tui/src/bottom_pane/chat_composer/passive_hints.rs b/codex-rs/tui/src/bottom_pane/chat_composer/passive_hints.rs
+index 4aac82f..ebbd63c 100644
+--- a/codex-rs/tui/src/bottom_pane/chat_composer/passive_hints.rs
++++ b/codex-rs/tui/src/bottom_pane/chat_composer/passive_hints.rs
+@@ -9,6 +9,8 @@ use super::*;
+ use crate::bottom_pane::footer::goal_status_indicator_line;
+ use crate::bottom_pane::footer::mode_indicator_line;
+ use crate::line_truncation::line_width;
++use crate::shortcut_touch::Action as TouchAction;
++use crate::shortcut_touch::Target;
+ use crate::style::secondary_text_style;
+ use ratatui::style::Styled;
+ 
+@@ -17,6 +19,7 @@ use ratatui::style::Styled;
+ enum Kind {
+     Agents,
+     Shortcuts,
++    Newline,
+     Action,
+     Side,
+     SideNav,
+@@ -38,7 +41,7 @@ impl Kind {
+     }
+ 
+     fn left(self) -> bool {
+-        matches!(self, Agents | Shortcuts | Action | Side | SideNav)
++        matches!(self, Agents | Shortcuts | Newline | Action | Side | SideNav)
+     }
+ 
+     fn row(self, two_rows: bool) -> usize {
+@@ -54,6 +57,7 @@ fn joined_width(first: usize, second: usize) -> usize {
+ 
+ struct Label {
+     kind: Kind,
++    action: Option<TouchAction>,
+     forms: Vec<(usize, Line<'static>)>,
+     selected: Option<usize>,
+ }
+@@ -93,12 +97,19 @@ impl Hints {
+         if !forms.is_empty() {
+             self.labels.push(Label {
+                 kind,
++                action: None,
+                 forms,
+                 selected: Some(0),
+             });
+         }
+     }
+ 
++    fn bind(&mut self, kind: Kind, action: TouchAction) {
++        if let Some(label) = self.labels.iter_mut().find(|label| label.kind == kind) {
++            label.action = Some(action);
++        }
++    }
++
+     pub(super) fn desired_rows(&self, width: u16) -> u16 {
+         let width = usize::from(width);
+         let mut compact = Row::default();
+@@ -176,8 +187,8 @@ impl Hints {
+             }
+         }
+         for kind in [
+-            Action, Side, Shell, Vim, Plan, Goal, Ide, Warning, Context, SideNav, AgentName,
+-            Agents, Shortcuts,
++            Action, Newline, Side, Shell, Vim, Plan, Goal, Ide, Warning, Context, SideNav,
++            AgentName, Agents, Shortcuts,
+         ] {
+             if !overflow[kind.row(two)] {
+                 continue;
+@@ -192,7 +203,12 @@ impl Hints {
+         self.placement(two)
+     }
+ 
+-    pub(super) fn render(mut self, area: Rect, buf: &mut Buffer) -> Option<Rect> {
++    pub(super) fn render(
++        mut self,
++        area: Rect,
++        buf: &mut Buffer,
++        targets: &mut Vec<Target>,
++    ) -> Option<Rect> {
+         if area.is_empty() {
+             return None;
+         }
+@@ -214,6 +230,9 @@ impl Hints {
+                 && rows[row].width() < usize::from(area.width);
+             let rect = Rect::new(*x - u16::from(inset), y, *cells as u16, 1);
+             Widget::render(line, rect, buf);
++            if let Some(action) = label.action {
++                targets.push(Target::new(rect, action));
++            }
+             if label.kind == Warning {
+                 warning = Some(rect);
+             }
+@@ -262,6 +281,7 @@ impl ChatComposer {
+         let can_navigate = self.has_focus && self.draft.input_enabled && !self.popup_active();
+         let can_type = can_navigate && !self.blocks_direct_input;
+         let show_cycle = can_type && !self.is_task_running;
++        let touch = self.footer.shortcut_touch.borrow().enabled;
+         if let Some(plan) = self.footer.collaboration_mode_indicator {
+             hints.add(
+                 Plan,
+@@ -278,6 +298,24 @@ impl ChatComposer {
+                 goal_status_indicator_line(self.footer.goal_status_indicator.as_ref()),
+             );
+         }
++        if touch && show_cycle && self.collaboration_modes_enabled {
++            if self.footer.collaboration_mode_indicator.is_none() {
++                hints.add(
++                    Plan,
++                    [shortcut(key_hint::shift(KeyCode::Tab).into(), " mode")],
++                );
++            }
++            hints.bind(
++                Plan,
++                TouchAction::Keys(key_hint::shift(KeyCode::Tab).into()),
++            );
++        }
++        if touch && can_type && mode == FooterMode::ComposerHasDraft {
++            if let Some(key) = self.footer.insert_newline_key {
++                hints.add(Newline, [shortcut(key, " new line")]);
++                hints.bind(Newline, TouchAction::Keys(key));
++            }
++        }
+         if self.footer.ide_context_active {
+             hints.add(
+                 Ide,
+@@ -297,6 +335,9 @@ impl ChatComposer {
+                 ],
+             );
+         }
++        if let Some(key) = self.footer.queue_key {
++            hints.bind(Action, TouchAction::Keys(key));
++        }
+         if let Some(label) = &self.footer.side_conversation_context_label {
+             let kind = if self.side_conversation_active {
+                 Side
+@@ -313,8 +354,9 @@ impl ChatComposer {
+                 [Line::from(agent.clone().set_style(secondary_text_style()))],
+             );
+         }
+-        if mode == FooterMode::ComposerEmpty && can_navigate && !self.is_in_paste_burst() {
+-            if self.agents_navigation_available() {
++        if (mode == FooterMode::ComposerEmpty || touch) && can_navigate && !self.is_in_paste_burst()
++        {
++            if mode == FooterMode::ComposerEmpty && self.agents_navigation_available() {
+                 hints.add(
+                     Agents,
+                     [shortcut(
+@@ -327,6 +369,11 @@ impl ChatComposer {
+                 hints.add(Shortcuts, [shortcut(key, " for shortcuts")]);
+             }
+         }
++        hints.bind(
++            Agents,
++            TouchAction::Keys(key_hint::plain(KeyCode::Left).into()),
++        );
++        hints.bind(Shortcuts, TouchAction::Help);
+         let show_warning = self.show_warning_notice(options);
+         if !self.footer.status_line_enabled
+             && !self.footer.context_window_pending
+diff --git a/codex-rs/tui/src/bottom_pane/chat_composer/shortcut_touch.rs b/codex-rs/tui/src/bottom_pane/chat_composer/shortcut_touch.rs
+new file mode 100644
+index 0000000..088b3d1
+--- /dev/null
++++ b/codex-rs/tui/src/bottom_pane/chat_composer/shortcut_touch.rs
+@@ -0,0 +1,159 @@
++//! Composer hint taps use the same runtime bindings as the keyboard. Opening
++//! help by touch also works with a draft; typing `?` retains its original meaning.
++use super::*;
++use crate::shortcut_touch::Action;
++use crate::shortcut_touch::Outcome;
++
++impl ChatComposer {
++    pub(crate) fn shortcut_touch_active(&self) -> bool {
++        self.footer.shortcut_touch.borrow().active()
++    }
++
++    pub(crate) fn cancel_shortcut_touch(&mut self) {
++        self.footer.shortcut_touch.get_mut().clear();
++    }
++
++    pub(crate) fn handle_shortcut_touch(&mut self, mouse: crossterm::event::MouseEvent) -> Outcome {
++        let outcome = self.footer.shortcut_touch.get_mut().handle(mouse);
++        if let Outcome::Activate(action) = outcome {
++            self.clear_mouse_selection();
++            match action {
++                Action::Help => {
++                    self.footer.mode = FooterMode::ShortcutOverlay;
++                    self.footer.shortcut_touch.get_mut().clear();
++                    return Outcome::Consumed;
++                }
++                Action::Close => {
++                    self.footer.mode = reset_mode_after_activity(self.footer.mode);
++                    self.footer.shortcut_touch.get_mut().clear();
++                    return Outcome::Consumed;
++                }
++                Action::Keys(_) => {
++                    // Dismiss help directly: a synthetic Escape could backtrack a conversation.
++                    if self.footer.mode == FooterMode::ShortcutOverlay {
++                        self.footer.mode = reset_mode_after_activity(self.footer.mode);
++                    }
++                    self.footer.shortcut_touch.get_mut().clear();
++                }
++            }
++        }
++        outcome
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::app_event_sender::AppEventSender;
++    use crossterm::event::MouseButton;
++    use crossterm::event::MouseEvent;
++    use crossterm::event::MouseEventKind;
++    use tokio::sync::mpsc::unbounded_channel;
++
++    fn fixture() -> ChatComposer {
++        let (tx, _) = unbounded_channel();
++        let mut composer =
++            ChatComposer::new(true, AppEventSender::new(tx), false, "Test".into(), true);
++        composer.footer.shortcut_touch.get_mut().enabled = true;
++        composer
++    }
++
++    fn draw(composer: &ChatComposer, width: u16, options: ComposerRenderOptions<'_>) -> Buffer {
++        let area = Rect::new(0, 0, width, 60);
++        let mut buf = Buffer::empty(area);
++        composer.render_with_options(area, &mut buf, None, options);
++        buf
++    }
++
++    fn position(buf: &Buffer, label: &str) -> (u16, u16) {
++        for y in buf.area.y..buf.area.bottom() {
++            for x in buf.area.x..buf.area.right() {
++                let text: String = (x..buf.area.right())
++                    .map(|column| buf[(column, y)].symbol())
++                    .collect();
++                if text.starts_with(label) {
++                    return (x, y);
++                }
++            }
++        }
++        panic!("missing {label}");
++    }
++
++    fn tap(composer: &mut ChatComposer, pos: (u16, u16)) -> Outcome {
++        let event = |kind| MouseEvent {
++            kind,
++            column: pos.0,
++            row: pos.1,
++            modifiers: KeyModifiers::NONE,
++        };
++        assert_eq!(
++            composer.handle_shortcut_touch(event(MouseEventKind::Down(MouseButton::Left))),
++            Outcome::Consumed
++        );
++        composer.handle_shortcut_touch(event(MouseEventKind::Up(MouseButton::Left)))
++    }
++
++    #[test]
++    fn shortcut_touch_opens_help_with_draft_and_newline_uses_editor_binding() {
++        let mut composer = fixture();
++        composer.draft.textarea.insert_str("草稿");
++        let buf = draw(&composer, 100, ComposerRenderOptions::default());
++        assert_eq!(
++            tap(&mut composer, position(&buf, "for shortcuts")),
++            Outcome::Consumed
++        );
++        assert!(composer.shortcut_overlay_visible());
++        let buf = draw(&composer, 100, ComposerRenderOptions::default());
++        let outcome = tap(&mut composer, position(&buf, "New line"));
++        assert!(!composer.shortcut_overlay_visible());
++        let Outcome::Activate(Action::Keys(crate::key_hint::ShortcutHint::Single(key))) = outcome
++        else {
++            panic!("{outcome:?}")
++        };
++        let (code, modifiers) = key.parts();
++        let (result, _) = composer.handle_key_event(KeyEvent::new(code, modifiers));
++        assert!(matches!(result, InputResult::None));
++        assert_eq!(composer.draft.textarea.text(), "草稿\n");
++    }
++
++    #[test]
++    fn shortcut_touch_close_preserves_draft_and_hidden_owners_have_no_targets() {
++        let mut composer = fixture();
++        composer.draft.textarea.insert_str("retained");
++        composer.footer.mode = FooterMode::ShortcutOverlay;
++        let buf = draw(&composer, 80, ComposerRenderOptions::default());
++        assert_eq!(
++            tap(&mut composer, position(&buf, "close")),
++            Outcome::Consumed
++        );
++        assert!(!composer.shortcut_overlay_visible());
++        assert_eq!(composer.draft.textarea.text(), "retained");
++        for options in [
++            ComposerRenderOptions {
++                unfocused: true,
++                ..Default::default()
++            },
++            ComposerRenderOptions {
++                is_dialog_backdrop: true,
++                ..Default::default()
++            },
++        ] {
++            draw(&composer, 80, options);
++            assert!(!composer.shortcut_touch_active());
++        }
++    }
++
++    #[test]
++    fn shortcut_touch_narrow_draft_keeps_newline_clickable() {
++        let mut composer = fixture();
++        composer.draft.textarea.insert_str("草稿");
++        for width in [24, 42, 80] {
++            let buf = draw(&composer, width, ComposerRenderOptions::default());
++            let outcome = tap(&mut composer, position(&buf, "new line"));
++            assert_eq!(
++                outcome,
++                Outcome::Activate(Action::Keys(composer.footer.insert_newline_key.unwrap()))
++            );
++        }
++    }
++}
 diff --git a/codex-rs/tui/src/bottom_pane/mod.rs b/codex-rs/tui/src/bottom_pane/mod.rs
-index a165ca1..46fed66 100644
+index a165ca1..316f190 100644
 --- a/codex-rs/tui/src/bottom_pane/mod.rs
 +++ b/codex-rs/tui/src/bottom_pane/mod.rs
 @@ -1965,6 +1965,9 @@ impl BottomPane {
@@ -835,7 +1377,32 @@ index a165ca1..46fed66 100644
          if self.has_active_view() || self.questions.as_ref().is_some_and(|q| q.expanded) {
              self.composer.end_mouse_drag();
              return false;
-@@ -2461,6 +2475,11 @@ impl BottomPane {
+@@ -2032,6 +2046,24 @@ impl BottomPane {
+         self.composer.prepare_mouse(event)
+     }
+ 
++    pub(crate) fn shortcut_touch_active(&self) -> bool {
++        self.composer.shortcut_touch_active()
++    }
++
++    pub(crate) fn cancel_shortcut_touch(&mut self) {
++        self.composer.cancel_shortcut_touch();
++    }
++
++    pub(crate) fn handle_shortcut_touch(
++        &mut self,
++        event: crossterm::event::MouseEvent,
++    ) -> crate::shortcut_touch::Outcome {
++        if !self.no_modal_or_popup_active() {
++            self.composer.cancel_shortcut_touch();
++        }
++        self.composer.handle_shortcut_touch(event)
++    }
++
+     pub(crate) fn handle_composer_mouse(&mut self, event: crossterm::event::MouseEvent) -> bool {
+         self.composer.handle_mouse(event)
+     }
+@@ -2461,6 +2493,11 @@ impl BottomPane {
          mut options: ComposerRenderOptions<'a>,
          views: &'a [Box<dyn BottomPaneView>],
      ) -> RenderableItem<'a> {
@@ -847,7 +1414,7 @@ index a165ca1..46fed66 100644
          if self.warnings_active()
              && let Some(warnings) = &self.warnings_view
          {
-@@ -2574,7 +2593,13 @@ impl BottomPane {
+@@ -2574,7 +2611,13 @@ impl BottomPane {
              if let Some(summary) = question_summary {
                  flex.push(
                      /*flex*/ 0,
@@ -1034,6 +1601,271 @@ index b223430..5ac4b7d 100644
 +    );
 +    (rendered.lines, regions)
 +}
+diff --git a/codex-rs/tui/src/bottom_pane/shortcut_overlay.rs b/codex-rs/tui/src/bottom_pane/shortcut_overlay.rs
+index f90edc7..0367183 100644
+--- a/codex-rs/tui/src/bottom_pane/shortcut_overlay.rs
++++ b/codex-rs/tui/src/bottom_pane/shortcut_overlay.rs
+@@ -9,7 +9,10 @@ use crate::key_hint;
+ use crate::multi_agents::next_agent_shortcut;
+ use crate::multi_agents::previous_agent_shortcut;
+ use crate::shortcut_help::Group;
++use crate::shortcut_help::HelpRow;
+ use crate::shortcut_help::Shortcut;
++use crate::shortcut_touch::Action;
++use crate::shortcut_touch::Target;
+ use crate::style::accent_color;
+ use crate::style::secondary_text_style;
+ use crate::wrapping::word_wrap_lines;
+@@ -22,8 +25,13 @@ use ratatui::style::Stylize;
+ use ratatui::text::Line;
+ use ratatui::widgets::Paragraph;
+ use ratatui::widgets::Widget;
++use unicode_width::UnicodeWidthStr;
+ 
+ pub(super) fn lines(props: &FooterProps, width: u16) -> Vec<Line<'static>> {
++    layout(props, width).0
++}
++
++fn layout(props: &FooterProps, width: u16) -> (Vec<Line<'static>>, Vec<Target>) {
+     let hints = props.key_hints;
+     let mut compose = Group {
+         title: "Compose",
+@@ -47,6 +55,7 @@ pub(super) fn lines(props: &FooterProps, width: u16) -> Vec<Line<'static>> {
+     if let Some(key) = hints.edit_previous {
+         let label = key.display_label();
+         compose.entries.push(Shortcut {
++            hint: None,
+             key: if props.esc_backtrack_hint {
+                 label
+             } else {
+@@ -78,6 +87,7 @@ pub(super) fn lines(props: &FooterProps, width: u16) -> Vec<Line<'static>> {
+     session.push(hints.toggle_voice, "Voice");
+     session.push(hints.agents, "Agents (empty prompt)");
+     session.entries.push(Shortcut {
++        hint: None,
+         key: format!(
+             "{} / {}",
+             previous_agent_shortcut().display_label(),
+@@ -103,11 +113,13 @@ pub(super) fn lines(props: &FooterProps, width: u16) -> Vec<Line<'static>> {
+     transcript.push(hints.find_transcript, "Find text");
+     transcript.entries.extend([
+         Shortcut {
++            hint: None,
+             key: "pgup / pgdn".into(),
+             action: "Scroll",
+         },
+         Shortcut::new(key_hint::ctrl(KeyCode::Char(' ')), "Start selection"),
+         Shortcut {
++            hint: None,
+             key: format!(
+                 "{} / {}",
+                 key_hint::ctrl(KeyCode::Home).display_label(),
+@@ -117,6 +129,7 @@ pub(super) fn lines(props: &FooterProps, width: u16) -> Vec<Line<'static>> {
+         },
+         // Keep both jump alternatives: the terminal may be on another OS over SSH.
+         Shortcut {
++            hint: None,
+             key: format!(
+                 "{} / {}",
+                 key_hint::KeyBinding::new(
+@@ -134,15 +147,64 @@ pub(super) fn lines(props: &FooterProps, width: u16) -> Vec<Line<'static>> {
+         },
+     ]);
+ 
+-    let mut result = vec![Line::from("Keyboard shortcuts").bold(), Line::default()];
+-    result.extend(crate::shortcut_help::group_lines(
++    for entry in &mut transcript.entries {
++        if entry.action != "Open transcript" && entry.action != "Find text" {
++            entry.hint = None;
++        }
++    }
++    let mut result = vec![
++        HelpRow::plain(Line::from("Keyboard shortcuts").bold()),
++        HelpRow::default(),
++    ];
++    result.extend(crate::shortcut_help::group_rows(
+         [compose, session, transcript],
+         width,
+     ));
+     let width = usize::from(width.max(/*other*/ 1));
+-    result.push(Line::default());
+-    result.extend(footer_lines(width));
+-    word_wrap_lines(&result, width)
++    result.push(HelpRow::default());
++    result.extend(footer_lines(width).into_iter().map(HelpRow::plain));
++    let mut lines = Vec::new();
++    let mut targets = Vec::new();
++    for row in result {
++        let text: String = row
++            .line
++            .spans
++            .iter()
++            .map(|span| span.content.as_ref())
++            .collect();
++        let wrapped = crate::wrapping::word_wrap_line_with_source(&row.line, width);
++        for (range, hint) in row.hints {
++            let mut areas = Vec::new();
++            for (index, part) in wrapped.iter().enumerate() {
++                let start = range.start.max(part.range.start);
++                let end = range.end.min(part.range.end);
++                if start < end {
++                    let x = text[part.range.start..start].width() as u16;
++                    let cells = text[start..end].width() as u16;
++                    if cells > 0 {
++                        areas.push(Rect::new(x, (lines.len() + index) as u16, cells, 1));
++                    }
++                }
++            }
++            if !areas.is_empty() {
++                targets.push(Target {
++                    areas,
++                    action: Action::Keys(hint),
++                });
++            }
++        }
++        lines.extend(wrapped.into_iter().map(|part| {
++            Line::from(
++                part.line
++                    .spans
++                    .into_iter()
++                    .map(|span| ratatui::text::Span::styled(span.content.into_owned(), span.style))
++                    .collect::<Vec<_>>(),
++            )
++            .style(part.line.style)
++        }));
++    }
++    (lines, targets)
+ }
+ 
+ pub(super) fn close_hint(props: &FooterProps, width: u16) -> Line<'static> {
+@@ -170,20 +232,35 @@ fn footer_lines(width: usize) -> Vec<Line<'static>> {
+     )
+ }
+ 
+-pub(super) fn render(props: &FooterProps, area: Rect, buf: &mut Buffer) {
+-    let mut lines = lines(props, area.width);
++pub(super) fn render(props: &FooterProps, area: Rect, buf: &mut Buffer) -> Vec<Target> {
++    let (mut lines, mut targets) = layout(props, area.width);
++    let mut visible_body = area.height;
+     let height = usize::from(area.height);
+     if lines.len() > height && height > 0 {
+         let mut footer = footer_lines(usize::from(area.width.max(/*other*/ 1)));
+         footer.truncate(height);
+         let body_height = height.saturating_sub(footer.len());
+-        lines.truncate(body_height.saturating_sub(/*rhs*/ 1));
++        visible_body = body_height.saturating_sub(1) as u16;
++        lines.truncate(usize::from(visible_body));
+         if body_height > 0 {
+             lines.push(Line::from("… resize to see all").dim());
+         }
+         lines.extend(footer);
+     }
++    targets.retain(|target| {
++        target
++            .areas
++            .iter()
++            .all(|rect| rect.bottom() <= visible_body && rect.right() <= area.width)
++    });
++    for target in &mut targets {
++        for rect in &mut target.areas {
++            rect.x += area.x;
++            rect.y += area.y;
++        }
++    }
+     Paragraph::new(lines).render(area, buf);
++    targets
+ }
+ 
+ #[cfg(test)]
+diff --git a/codex-rs/tui/src/bottom_pane/shortcut_overlay_tests.rs b/codex-rs/tui/src/bottom_pane/shortcut_overlay_tests.rs
+index fe6ebef..c6cf666 100644
+--- a/codex-rs/tui/src/bottom_pane/shortcut_overlay_tests.rs
++++ b/codex-rs/tui/src/bottom_pane/shortcut_overlay_tests.rs
+@@ -101,3 +101,58 @@ fn shortcut_overlay_clipping_preserves_customization_in_small_areas() {
+         &props(),
+     );
+ }
++
++#[test]
++fn shortcut_touch_tracks_wrapped_runtime_bindings_and_all_column_layouts() {
++    use ratatui::buffer::Buffer;
++    use ratatui::layout::Rect;
++    let mut props = props();
++    let hint = ShortcutHint::Chord {
++        prefix: key_hint::ctrl(KeyCode::Char('x')),
++        completion: key_hint::shift(KeyCode::Enter),
++    };
++    props.key_hints.insert_newline = Some(hint);
++    props.key_hints.history_search = None;
++    for width in [9, 28, 60, 95, 160] {
++        let area = Rect::new(4, 2, width, 200);
++        let mut buf = Buffer::empty(Rect::new(0, 0, 200, 205));
++        let targets = super::render(&props, area, &mut buf);
++        let target = targets
++            .iter()
++            .find(|t| t.action == crate::shortcut_touch::Action::Keys(hint))
++            .unwrap();
++        let painted: String = target
++            .areas
++            .iter()
++            .flat_map(|r| (r.x..r.right()).map(|x| buf[(x, r.y)].symbol()))
++            .collect();
++        assert!(
++            painted.contains("New") && painted.contains("line"),
++            "{width}: {painted}"
++        );
++        assert!(
++            targets
++                .iter()
++                .all(|t| t.areas.iter().all(|r| r.intersection(area) == *r))
++        );
++        assert!(!targets.iter().any(|t| t.action
++            == crate::shortcut_touch::Action::Keys(key_hint::ctrl(KeyCode::Char('r')).into())));
++    }
++}
++
++#[test]
++fn shortcut_touch_never_activates_partially_clipped_help_entries() {
++    use ratatui::buffer::Buffer;
++    use ratatui::layout::Rect;
++    let props = props();
++    let width = 9;
++    let (_, targets) = super::layout(&props, width);
++    let key = crate::shortcut_touch::Action::Keys(props.key_hints.insert_newline.unwrap());
++    let full = targets.iter().find(|t| t.action == key).unwrap();
++    assert!(full.areas.len() > 1);
++    let height = full.areas[0].bottom() + super::footer_lines(width as usize).len() as u16 + 1;
++    let area = Rect::new(0, 0, width, height);
++    let mut buf = Buffer::empty(area);
++    let clipped = super::render(&props, area, &mut buf);
++    assert!(!clipped.iter().any(|t| t.action == key));
++}
+diff --git a/codex-rs/tui/src/chatwidget/interaction.rs b/codex-rs/tui/src/chatwidget/interaction.rs
+index db5d2d8..62d49d0 100644
+--- a/codex-rs/tui/src/chatwidget/interaction.rs
++++ b/codex-rs/tui/src/chatwidget/interaction.rs
+@@ -58,6 +58,21 @@ impl ChatWidget {
+         self.bottom_pane.set_composer_cursor(cursor);
+     }
+ 
++    pub(crate) fn shortcut_touch_active(&self) -> bool {
++        self.bottom_pane.shortcut_touch_active()
++    }
++
++    pub(crate) fn cancel_shortcut_touch(&mut self) {
++        self.bottom_pane.cancel_shortcut_touch();
++    }
++
++    pub(crate) fn handle_shortcut_touch(
++        &mut self,
++        event: crossterm::event::MouseEvent,
++    ) -> crate::shortcut_touch::Outcome {
++        self.bottom_pane.handle_shortcut_touch(event)
++    }
++
+     pub(crate) fn handle_composer_mouse(&mut self, event: crossterm::event::MouseEvent) -> bool {
+         self.bottom_pane.handle_composer_mouse(event)
+     }
 diff --git a/codex-rs/tui/src/chatwidget/questions.rs b/codex-rs/tui/src/chatwidget/questions.rs
 index c65a10c..74ea81b 100644
 --- a/codex-rs/tui/src/chatwidget/questions.rs
@@ -1306,5 +2138,437 @@ index 7962e84..3c9f5a0 100644
 +            modifiers: KeyModifiers::NONE,
 +        });
 +        assert!(ops.try_recv().is_err());
++    }
++}
+diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
+index 8b3608c..253de56 100644
+--- a/codex-rs/tui/src/lib.rs
++++ b/codex-rs/tui/src/lib.rs
+@@ -215,6 +215,7 @@ mod session_resume;
+ mod session_start;
+ mod session_state;
+ mod shortcut_help;
++mod shortcut_touch;
+ mod sidebar_chooser;
+ mod sidebar_tab_strip;
+ mod skills_helpers;
+diff --git a/codex-rs/tui/src/shortcut_help.rs b/codex-rs/tui/src/shortcut_help.rs
+index ff78847..b2571aa 100644
+--- a/codex-rs/tui/src/shortcut_help.rs
++++ b/codex-rs/tui/src/shortcut_help.rs
+@@ -10,14 +10,17 @@ use ratatui::text::Span;
+ const COLUMN_GAP: usize = 4;
+ 
+ pub(crate) struct Shortcut {
++    pub(crate) hint: Option<ShortcutHint>,
+     pub(crate) key: String,
+     pub(crate) action: &'static str,
+ }
+ 
+ impl Shortcut {
+     pub(crate) fn new(key: impl Into<ShortcutHint>, action: &'static str) -> Self {
++        let key = key.into();
+         Self {
+-            key: key.into().display_label(),
++            hint: Some(key),
++            key: key.display_label(),
+             action,
+         }
+     }
+@@ -35,28 +38,65 @@ impl Group {
+         }
+     }
+ 
+-    fn lines(&self) -> Vec<Line<'static>> {
++    fn lines(&self) -> Vec<HelpRow> {
+         let key_width = self
+             .entries
+             .iter()
+             .map(|entry| Span::raw(&entry.key).width())
+             .max()
+             .unwrap_or(/*default*/ 0);
+-        let mut lines = vec![self.title.bold().into()];
++        let mut lines = vec![HelpRow::plain(self.title.bold().into())];
+         for entry in &self.entries {
+             let key = entry.key.clone().fg(accent_color());
+             let padding = " ".repeat(key_width.saturating_sub(key.width()) + 2);
+-            lines.push(vec![key, padding.into(), entry.action.into()].into());
++            let line = Line::from(vec![key, padding.into(), entry.action.into()]);
++            let bytes = line.spans.iter().map(|span| span.content.len()).sum();
++            lines.push(HelpRow {
++                line,
++                hints: entry
++                    .hint
++                    .into_iter()
++                    .map(|hint| (0..bytes, hint))
++                    .collect(),
++            });
+         }
+         lines
+     }
+ }
+ 
++#[derive(Clone, Default)]
++pub(crate) struct HelpRow {
++    pub(crate) line: Line<'static>,
++    pub(crate) hints: Vec<(std::ops::Range<usize>, ShortcutHint)>,
++}
++
++impl HelpRow {
++    pub(crate) fn plain(line: Line<'static>) -> Self {
++        Self {
++            line,
++            hints: Vec::new(),
++        }
++    }
++}
++
+ pub(crate) fn group_lines(groups: [Group; 3], width: u16) -> Vec<Line<'static>> {
++    group_rows(groups, width)
++        .into_iter()
++        .map(|row| row.line)
++        .collect()
++}
++
++pub(crate) fn group_rows(groups: [Group; 3], width: u16) -> Vec<HelpRow> {
+     let groups = groups.map(|group| group.lines());
+     let widths: Vec<usize> = groups
+         .iter()
+-        .map(|group| group.iter().map(Line::width).max().unwrap_or(/*default*/ 0))
++        .map(|group| {
++            group
++                .iter()
++                .map(|row| row.line.width())
++                .max()
++                .unwrap_or(/*default*/ 0)
++        })
+         .collect();
+     let width = usize::from(width.max(/*other*/ 1));
+     let mut result = Vec::new();
+@@ -64,7 +104,7 @@ pub(crate) fn group_lines(groups: [Group; 3], width: u16) -> Vec<Line<'static>>
+         result.extend(columns(&groups, &widths));
+     } else if widths[0] + COLUMN_GAP + widths[1].max(widths[2]) <= width {
+         let mut right = groups[1].clone();
+-        right.push(Line::default());
++        right.push(HelpRow::default());
+         right.extend(groups[2].clone());
+         result.extend(columns(
+             &[groups[0].clone(), right],
+@@ -73,7 +113,7 @@ pub(crate) fn group_lines(groups: [Group; 3], width: u16) -> Vec<Line<'static>>
+     } else {
+         for (index, group) in groups.into_iter().enumerate() {
+             if index > 0 {
+-                result.push(Line::default());
++                result.push(HelpRow::default());
+             }
+             result.extend(group);
+         }
+@@ -81,20 +121,28 @@ pub(crate) fn group_lines(groups: [Group; 3], width: u16) -> Vec<Line<'static>>
+     result
+ }
+ 
+-fn columns(groups: &[Vec<Line<'static>>], widths: &[usize]) -> Vec<Line<'static>> {
++fn columns(groups: &[Vec<HelpRow>], widths: &[usize]) -> Vec<HelpRow> {
+     let height = groups.iter().map(Vec::len).max().unwrap_or(/*default*/ 0);
+     (0..height)
+         .map(|row| {
+             let mut line = Line::default();
++            let mut hints = Vec::new();
+             for (column, group) in groups.iter().enumerate() {
+                 let entry = group.get(row).cloned().unwrap_or_default();
+-                let padding = widths[column].saturating_sub(entry.width()) + COLUMN_GAP;
+-                line.extend(entry.spans);
++                let padding = widths[column].saturating_sub(entry.line.width()) + COLUMN_GAP;
++                let offset: usize = line.spans.iter().map(|span| span.content.len()).sum();
++                hints.extend(
++                    entry
++                        .hints
++                        .into_iter()
++                        .map(|(range, hint)| (range.start + offset..range.end + offset, hint)),
++                );
++                line.extend(entry.line.spans);
+                 if column + 1 < groups.len() {
+                     line.push_span(" ".repeat(padding));
+                 }
+             }
+-            line
++            HelpRow { line, hints }
+         })
+         .collect()
+ }
+diff --git a/codex-rs/tui/src/shortcut_touch.rs b/codex-rs/tui/src/shortcut_touch.rs
+new file mode 100644
+index 0000000..f5245b1
+--- /dev/null
++++ b/codex-rs/tui/src/shortcut_touch.rs
+@@ -0,0 +1,270 @@
++//! Opt-in taps on rendered shortcut hints. Owners provide semantic actions and
++//! actual painted rectangles; no displayed key label is parsed back into input.
++//! A gesture stays captured until release, even after cancellation, so dragging
++//! a hint cannot start a selection or activate content revealed underneath it.
++
++use crate::key_hint::KeyBinding;
++use crate::key_hint::ShortcutHint;
++use crossterm::event::KeyCode;
++use crossterm::event::KeyEvent;
++use crossterm::event::KeyEventKind;
++use crossterm::event::KeyModifiers;
++use crossterm::event::MouseButton;
++use crossterm::event::MouseEvent;
++use crossterm::event::MouseEventKind;
++use ratatui::layout::Rect;
++
++/// Mirror crossterm's Shift+Tab decoding for handlers matching BackTab directly.
++pub(crate) fn key_event(binding: KeyBinding, kind: KeyEventKind) -> KeyEvent {
++    let (mut code, modifiers) = binding.parts();
++    if code == KeyCode::Tab && modifiers.contains(KeyModifiers::SHIFT) {
++        code = KeyCode::BackTab;
++    }
++    KeyEvent::new_with_kind(code, modifiers, kind)
++}
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub(crate) enum Action {
++    Keys(ShortcutHint),
++    Help,
++    Close,
++}
++
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub(crate) struct Target {
++    pub(crate) areas: Vec<Rect>,
++    pub(crate) action: Action,
++}
++
++impl Target {
++    pub(crate) fn new(area: Rect, action: Action) -> Self {
++        Self {
++            areas: vec![area],
++            action,
++        }
++    }
++}
++
++#[derive(Debug, PartialEq, Eq)]
++pub(crate) enum Outcome {
++    Ignored,
++    Consumed,
++    Activate(Action),
++}
++
++#[derive(Default)]
++pub(crate) struct ShortcutTouch {
++    pub(crate) enabled: bool,
++    area: Rect,
++    targets: Vec<Target>,
++    pressed: Option<usize>,
++    captured: bool,
++}
++
++impl ShortcutTouch {
++    pub(crate) fn new() -> Self {
++        Self {
++            enabled: std::env::var("CODEX_TOUCH").is_ok_and(|value| value == "1"),
++            ..Self::default()
++        }
++    }
++
++    pub(crate) fn set_layout(&mut self, area: Rect, targets: Vec<Target>) {
++        if self.area != area || self.targets != targets {
++            self.cancel();
++        }
++        self.area = area;
++        self.targets = targets;
++    }
++
++    pub(crate) fn active(&self) -> bool {
++        self.enabled && (self.captured || !self.targets.is_empty())
++    }
++
++    pub(crate) fn cancel(&mut self) {
++        self.pressed = None;
++    }
++
++    pub(crate) fn clear(&mut self) {
++        self.cancel();
++        self.targets.clear();
++    }
++
++    pub(crate) fn handle(&mut self, mouse: MouseEvent) -> Outcome {
++        if !self.enabled {
++            return Outcome::Ignored;
++        }
++        let hit = self.targets.iter().position(|target| {
++            target
++                .areas
++                .iter()
++                .any(|area| area.contains((mouse.column, mouse.row).into()))
++        });
++        if !mouse.modifiers.is_empty() {
++            self.cancel();
++        }
++        match mouse.kind {
++            MouseEventKind::Down(MouseButton::Left) => {
++                self.pressed = hit.filter(|_| mouse.modifiers.is_empty());
++                self.captured = self.pressed.is_some();
++                if self.captured {
++                    Outcome::Consumed
++                } else {
++                    Outcome::Ignored
++                }
++            }
++            MouseEventKind::Up(MouseButton::Left) => {
++                let pressed = self.pressed.take();
++                let captured = std::mem::take(&mut self.captured);
++                if let Some(index) = pressed.filter(|index| Some(*index) == hit) {
++                    Outcome::Activate(self.targets[index].action)
++                } else if captured {
++                    Outcome::Consumed
++                } else {
++                    Outcome::Ignored
++                }
++            }
++            MouseEventKind::Moved => {
++                if self.pressed != hit {
++                    self.cancel();
++                }
++                if self.captured {
++                    Outcome::Consumed
++                } else {
++                    Outcome::Ignored
++                }
++            }
++            _ => {
++                self.cancel();
++                if self.captured {
++                    Outcome::Consumed
++                } else {
++                    Outcome::Ignored
++                }
++            }
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::key_hint;
++    use crossterm::event::KeyCode;
++    use crossterm::event::KeyModifiers;
++
++    fn mouse(kind: MouseEventKind, column: u16, row: u16) -> MouseEvent {
++        MouseEvent {
++            kind,
++            column,
++            row,
++            modifiers: KeyModifiers::NONE,
++        }
++    }
++
++    fn fixture() -> (ShortcutTouch, Target) {
++        let target = Target::new(
++            Rect::new(5, 3, 12, 1),
++            Action::Keys(key_hint::shift(KeyCode::Tab).into()),
++        );
++        let mut state = ShortcutTouch {
++            enabled: true,
++            ..ShortcutTouch::default()
++        };
++        state.set_layout(Rect::new(0, 0, 60, 8), vec![target.clone()]);
++        (state, target)
++    }
++
++    #[test]
++    fn stationary_release_activates_once_and_does_not_include_padding() {
++        let (mut state, target) = fixture();
++        assert_eq!(
++            state.handle(mouse(MouseEventKind::Down(MouseButton::Left), 16, 3)),
++            Outcome::Consumed
++        );
++        assert_eq!(
++            state.handle(mouse(MouseEventKind::Up(MouseButton::Left), 16, 3)),
++            Outcome::Activate(target.action)
++        );
++        assert_eq!(
++            state.handle(mouse(MouseEventKind::Up(MouseButton::Left), 16, 3)),
++            Outcome::Ignored
++        );
++        assert_eq!(
++            state.handle(mouse(MouseEventKind::Down(MouseButton::Left), 17, 3)),
++            Outcome::Ignored
++        );
++        assert_eq!(
++            state.handle(mouse(MouseEventKind::Up(MouseButton::Left), 16, 3)),
++            Outcome::Ignored
++        );
++    }
++
++    #[test]
++    fn drag_modifiers_wheel_and_leaving_then_returning_cancel_activation() {
++        for kind in [
++            MouseEventKind::Drag(MouseButton::Left),
++            MouseEventKind::ScrollDown,
++            MouseEventKind::Moved,
++        ] {
++            let (mut state, _) = fixture();
++            state.handle(mouse(MouseEventKind::Down(MouseButton::Left), 5, 3));
++            assert_eq!(state.handle(mouse(kind, 50, 3)), Outcome::Consumed);
++            assert_eq!(
++                state.handle(mouse(MouseEventKind::Up(MouseButton::Left), 5, 3)),
++                Outcome::Consumed
++            );
++        }
++        let (mut state, _) = fixture();
++        state.handle(mouse(MouseEventKind::Down(MouseButton::Left), 5, 3));
++        let mut release = mouse(MouseEventKind::Up(MouseButton::Left), 5, 3);
++        release.modifiers = KeyModifiers::SHIFT;
++        assert_eq!(state.handle(release), Outcome::Consumed);
++    }
++
++    #[test]
++    fn repaint_preserves_tap_but_replacement_resize_and_input_cancel_it() {
++        let area = Rect::new(0, 0, 60, 8);
++        for change in 0..4 {
++            let (mut state, target) = fixture();
++            state.handle(mouse(MouseEventKind::Down(MouseButton::Left), 5, 3));
++            match change {
++                0 => state.set_layout(area, vec![target.clone()]),
++                1 => state.set_layout(Rect::new(0, 0, 59, 8), vec![target.clone()]),
++                2 => state.set_layout(area, vec![Target::new(target.areas[0], Action::Close)]),
++                _ => {
++                    state.clear();
++                    state.set_layout(area, vec![target.clone()]);
++                }
++            }
++            assert_eq!(
++                state.handle(mouse(MouseEventKind::Up(MouseButton::Left), 5, 3)),
++                if change == 0 {
++                    Outcome::Activate(target.action)
++                } else {
++                    Outcome::Consumed
++                }
++            );
++        }
++    }
++
++    #[test]
++    fn shift_tab_uses_terminal_backtab_for_press_and_release() {
++        for kind in [KeyEventKind::Press, KeyEventKind::Release] {
++            let event = key_event(crate::key_hint::shift(KeyCode::Tab), kind);
++            assert_eq!(event.code, KeyCode::BackTab);
++            assert_eq!(event.kind, kind);
++            assert_eq!(event.modifiers, KeyModifiers::SHIFT);
++        }
++    }
++
++    #[test]
++    fn opt_in_is_required() {
++        let (mut state, _) = fixture();
++        state.enabled = false;
++        assert_eq!(
++            state.handle(mouse(MouseEventKind::Down(MouseButton::Left), 5, 3)),
++            Outcome::Ignored
++        );
 +    }
 +}

@@ -20,3 +20,5 @@ bash scripts/check.sh --baseline-package /home/developer/codex-touch-build/packa
 Rust 触摸行为测试保存在 `src/async-question-touch.patch`，应用后位于上游 `async_questions/mouse_tests.rs` 和问答集成测试模块。`bash scripts/check.sh --rust-tests` 编译并运行问答、共享行渲染器和普通问答弹层回归；首次会编译额外的上游测试依赖。精确源码核对可用 `--upstream-source PATH`。详见[阶段一说明](../docs/phase1.md)。
 
 `test_prepare_touch.py` 用临时合成 Git 仓库检查补丁应用、重复执行、只读检查、真实索引保持，以及拒绝错误版本、本地改动、预先存在的新文件和未知文件。
+
+提示点击测试同样保存在累计补丁中：`shortcut`、`footer`、`live_center` 已登记到 `scripts/test-touch.sh`。扩展的 `touch_pty.py` 使用自定义 Shift+Enter、Shift+Up 和两段记录搜索快捷键，覆盖问答前后导航、草稿换行、帮助开关、模式切换、推理强度和多行消息发送，并核对实际发往本机模型的内容。当前 `--touch-package` 验收需要快捷键版产物，旧第一阶段包不具备新增行为。
