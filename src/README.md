@@ -1,6 +1,6 @@
 # 源码与来源
 
-`async-question-touch.patch` 是针对 `upstream.json` 固定提交的 Codex Rust TUI 补丁，保留原文件名，累计包含异步问答和快捷键提示点击的实现及上游测试。测试文件随补丁保留在上游对应模块中，仓库的 `scripts/check.sh --rust-tests` 为统一入口。
+`async-question-touch.patch` 是针对 `upstream.json` 固定提交的 Codex Rust TUI 补丁，保留原文件名，累计包含异步问答、快捷键提示、Agent command center 和工作中断提示点击的实现及上游测试。测试文件随补丁保留在上游对应模块中，仓库的 `scripts/check.sh --rust-tests` 为统一入口。
 
 补丁基于 OpenAI Codex（https://github.com/openai/codex），保留上游 Apache-2.0 许可，许可与声明副本为 `LICENSE.upstream`、`NOTICE.upstream`。补丁标识了 codex-touch 对上游文件的修改；原作者的声明保持不变。本项目独立脚本与文档采用根目录 MIT；MIT 不替代上游许可。分发完整二进制时也需遵守上游及依赖许可。
 

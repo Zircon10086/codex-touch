@@ -11,10 +11,10 @@ cd /storage/emulated/0/Agent/codex-touch
 bash scripts/run-touch.sh
 ```
 
-当前入口选择 `~/codex-touch-build/packages/touch-shortcuts-0.169.0`。第一阶段已验收包仍保留，可临时切回：
+当前入口选择 `~/codex-touch-build/packages/touch-agents-0.169.0`。上一轮快捷键包和第一阶段包仍保留，可临时切回：
 
 ```sh
-CODEX_TOUCH_PACKAGE="$HOME/codex-touch-build/packages/touch-0.169.0" bash scripts/run-touch.sh
+CODEX_TOUCH_PACKAGE="$HOME/codex-touch-build/packages/touch-shortcuts-0.169.0" bash scripts/run-touch.sh
 ```
 
 启动器不修改 HOME/CODEX_HOME，默认仍共用日用 Codex 的配置和会话。重新构建用 `bash scripts/build-touch.sh`；已有输出不覆盖，需要通过 `CODEX_TOUCH_PACKAGE` 指定新的 Linux 目录。
@@ -27,7 +27,11 @@ CODEX_TOUCH_PACKAGE="$HOME/codex-touch-build/packages/touch-0.169.0" bash script
 | 有草稿的主输入区 | 保留帮助和 `new line` 入口；换行插入到当前光标处，不提交草稿 |
 | `?` 快捷键帮助 | Commands、Mention files、Shell command、New line、Paste image、External editor、Search history、发送/排队、Change mode、推理强度、Voice、Agents、Inspect activity、Interrupt/Quit、Open transcript、Find text |
 | 帮助底部 `close` | 关闭帮助并保留草稿 |
+| Agent command center | 点击任务行选中，再点已选中的任务行打开；点击状态标签筛选、分组提示切换分组、底部提示和帮助条目执行动作；列表滚轮移动选择 |
+| 工作状态 `esc to interrupt` | 点击完整显示的快捷键或 `to interrupt` 文字，执行当前绑定的原版中断流程 |
 | 异步问答底部 | 沿用第一阶段的 submit、skip、main prompt、prev question、next question 等单键提示点按，包含 Shift 组合键 |
+
+command center 的任务目标使用稳定的会话 ID；后台刷新不能把旧点按重定向到另一任务。改名期间关闭任务行与筛选点击，避免把名字应用到错误任务。窄屏筛选栏的左右箭头可进入隐藏的筛选页。帮助中的合并方向键各自可点，说明文字对应最后一个方向；删除、归档继续进入原有确认流程。
 
 默认全屏模式下，Open transcript 展开当前记录详情，输入框仍然保留；Find text 则进入记录搜索。
 
@@ -49,19 +53,31 @@ CODEX_TOUCH_PACKAGE="$HOME/codex-touch-build/packages/touch-0.169.0" bash script
 
 ```sh
 bash scripts/check.sh --upstream-source "$HOME/codex-touch-build/upstream" --rust-tests
-bash scripts/check.sh --touch-package "$HOME/codex-touch-build/packages/touch-shortcuts-0.169.0"
+bash scripts/check.sh --touch-package "$HOME/codex-touch-build/packages/touch-agents-0.169.0"
 ```
 
 Rust 检查包含第一阶段范围，并增加提示手势、帮助列布局/换行/裁剪、草稿换行/帮助关闭、弹层背景与非焦点区域测试。集成测试使用隔离 HOME/CODEX_HOME、本机假模型和合成 PTY，验证实际 SGR 鼠标经过完整程序后产生的动作与模型请求。
 
-2026-11-17：376 项去重后的 Rust 测试通过，包含 10 项新增提示点击测试。六个筛选范围分别为 questions 75、selection_popup_common 10、request_user_input 90、shortcut 117、footer 91、live_center 12；范围有交集，未运行整个上游套件。
+上一轮快捷键版（2026-11-17）：376 项去重后的 Rust 测试通过，包含 10 项新增提示点击测试。六个筛选范围分别为 questions 75、selection_popup_common 10、request_user_input 90、shortcut 117、footer 91、live_center 12；范围有交集，未运行整个上游套件。
 
 实际程序 PTY 已通过：原有问答点答与 Shift 前后题导航；拖动模式提示不激活；42 列下换行；带草稿打开帮助和关闭；模式双向切换；自定义 Shift+Up 推理强度；帮助内 Shift+Enter 换行；自定义两段快捷键打开记录搜索；点击发送后实际模型请求包含精确的三行文本及 high 推理强度；退出后终端属性与鼠标上报恢复。
 
 应用级 Rust 测试采用上游 CI 的 `RUST_MIN_STACK=8388608`。一个原有界面快照仍写 `v0.0.0`；验证差异只有两处版本标签后，已更新为固定发布版本 `v0.169.0`。PTY 首次安装隔离后台服务包实测约 40–50 秒，因此启动等待改为 120 秒；界面操作的等待仍为 30 秒，开始空闲操作前排空问答回复，点击提示前等待其位置稳定 250 毫秒，不自动重试点击。
 
-手机本地程序包约 599 MiB，首次本轮出包耗时 145.6 秒；只修正快照后重打包 6.2 秒，五个二进制校验值相同。构建记录在 `~/codex-touch-build/shortcut-build-record.json`。本轮 TUI 测试编译采样进程组 RSS 峰值约 7.07 GiB；单 Cargo 任务，未触发温控暂停。
+手机本地程序包约 599 MiB，该轮首次出包耗时 145.6 秒；只修正快照后重打包 6.2 秒，五个二进制校验值相同。构建记录在 `~/codex-touch-build/shortcut-build-record.json`。该轮 TUI 测试编译采样进程组 RSS 峰值约 7.07 GiB；单 Cargo 任务，未触发温控暂停。
 
-新功能尚未通过用户真机验收；PTY 不代表 Android 手指操作或输入法已验证。
+用户随后反馈大部分触摸测试已通过，同时指出 command center 和中断提示无法点击；这是概括性反馈，不代表上一轮每个条目均已真机验收。本轮补齐的两处仍待用户真机验收，PTY 不代表 Android 手指操作或输入法已验证。
 
 建议真机按顺序确认：点击底部模式提示；输入两行中文（第二行用 `new line` 插入）；有草稿时点击帮助、再点 New line/Change mode/close；在多题问答中点 next question 与 prev question。缩窄窗口或折叠屏幕后再次操作，确认拖动提示不触发。
+
+## command center 与中断提示补齐
+
+2026-11-17：增加独立视图的触摸路由，只让最上层组件接收点击；打开其他弹层时取消底层手势。状态组件自行登记完整中断提示区域，隐藏、截断、绑定或布局改变均取消旧点击。共享的帮助布局与手势代码继续复用，无新增依赖。
+
+建议真机验证：打开 agents，点任务行选中并再次打开；点 Working/Ready 等标签和窄屏箭头；点 `? help` 后执行 Search、Rename、Group 等动作，点 back 分别退出帮助与中心。运行一个可中断任务，先拖动 `esc to interrupt` 确认不中断，再轻点文字确认停止。
+
+本轮验收通过：409 项去重 Rust 测试（7 项新增），七个筛选范围为 questions 75、selection_popup_common 10、request_user_input 90、shortcut 121、footer 91、live_center 16、status_indicator 29，范围有交集。原有状态动效快照保持不变；未运行整个上游套件。
+
+统一检查还通过程序包配套工具、V8/shell/rg 完整回合、默认 daemon TUI，以及扩展的触摸 PTY。新增 PTY 实测了 command center 状态筛选、帮助、运行时两段 Search 快捷键、分层返回、点击打开，以及假模型回合持续运行时“拖动不中断、点击中断”和退出恢复。整个测试使用临时 HOME/CODEX_HOME 与回环服务。
+
+手机增量出包 88.9 秒（含起始温控等待 2.1 秒），最终 Rust 回归 76.4 秒，程序包统一验收 86.8 秒（含起始降温等待 18.7 秒）；这些不是首次全新构建耗时。新包约 598.8 MiB，源码/依赖/缓存及四个包合计约 32.57 GiB；本轮测试编译采样进程组 RSS 峰值约 6.97 GiB。记录在 `~/codex-touch-build/agents-build-record.json`，保留旧包供回退。自动验收通过后，新增行为仍需用户在真实 Termux 中确认。

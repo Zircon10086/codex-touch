@@ -13,7 +13,7 @@ export RUSTUP_TOOLCHAIN=1.95.0
 export RUST_MIN_STACK=8388608
 cd -- "$source_root/codex-rs"
 # Reuse one compiled test executable for question, shortcut and footer coverage.
-for filter in questions selection_popup_common request_user_input shortcut footer live_center; do
+for filter in questions selection_popup_common request_user_input shortcut footer live_center status_indicator; do
     nice -n 5 cargo test --locked --profile dev-small --target aarch64-unknown-linux-gnu \
         -p codex-tui --lib "$filter" -- --test-threads=1
 done

@@ -120,7 +120,10 @@ class Handler(FixtureHandler):
             self.wfile.write(f"event: {event['type']}\ndata: {json.dumps(event)}\n\n".encode());self.wfile.flush()
         try:
             emit({"type":"response.created","response":{"id":f"touch-{primary}"}})
-            if not title and primary==1:
+            if not title and "TOUCH_HOLD_INTERRUPT" in json.dumps(request.get("input", [])):
+                self.server.interrupt_started.set()
+                if not any(self.server.interrupt_release.wait(55) for _ in range(2)): return
+            elif not title and primary==1:
                 item={"type":"function_call","call_id":"touch-questions","namespace":"functions","name":"request_user_input_async","arguments":json.dumps({"questions":[
                     {"title":"Choose a route","options":["Alpha with a deliberately long description for wrapping on a narrow terminal", "Beta selected"]},
                     {"title":"Choose another route","options":["Named answer"]},
@@ -152,6 +155,7 @@ def exercise(package):
         catalog=root/"models.json";catalog.write_text(json.dumps({"models":[model]}))
         server=ThreadingHTTPServer(("127.0.0.1",0),Handler);server.daemon_threads=True
         server.requests=[];server.continuation=threading.Event();server.release=threading.Event()
+        server.interrupt_started=threading.Event();server.interrupt_release=threading.Event()
         thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         (state/"config.toml").write_text(f'''model = "touch-fixture"
 model_catalog_json = {json.dumps(str(catalog))}
@@ -176,6 +180,8 @@ plugins = false
 insert_newline = "shift-enter"
 [tui.keymap.global]
 find_transcript = "ctrl-x f3"
+[tui.keymap.agents]
+search = "ctrl-x f4"
 [tui.keymap.chat]
 increase_reasoning_effort = "shift-up"
 decrease_reasoning_effort = "shift-down"
@@ -332,11 +338,43 @@ trust_level = "trusted"
             until(lambda:draft_request() is not None,"Touch send did not deliver the exact multiline draft")
             assert draft_request().get("reasoning", {}).get("effort")=="high","Shift-up hint did not change reasoning"
             until(lambda:screen.find("shift+tab mode"),"Turn did not finish")
+            # Exercise a true modal owner, including a runtime chord from its own help.
+            os.write(master,b"\x1b[D")
+            until(lambda:screen.find("Agent command center") and screen.find("? help"),"Command center did not open")
+            click("Working ")
+            until(lambda:screen.find("No matching tasks"),"Status tab tap did not filter")
+            click("All ")
+            until(lambda:not screen.find("No matching tasks"),"All tab did not restore tasks")
+            click("? help")
+            until(lambda:screen.find("Task shortcuts"),"Center help did not open")
+            click("Search")
+            until(lambda:screen.find("Search ›") and not screen.find("Task shortcuts"),"Center help chord did not start search")
+            click("esc back")
+            until(lambda:screen.find("? help") and not screen.find("Search ›"),"Center search back failed")
+            click("? help")
+            click("esc back")
+            until(lambda:screen.find("Agent command center") and not screen.find("Task shortcuts"),"Center help back closed the whole view")
+            click("enter open")
+            until(lambda:screen.find("shift+tab mode") and not screen.find("Agent command center"),"Center open hint failed")
+            # Hold a fresh synthetic turn until the displayed interrupt hint is tapped.
+            os.write(master,b"\x1b[200~TOUCH_HOLD_INTERRUPT\x1b[201~")
+            until(lambda:screen.find("TOUCH_HOLD_INTERRUPT"),"Interrupt fixture draft missing")
+            os.write(master,b"\r")
+            until(lambda:server.interrupt_started.is_set() and screen.find("to interrupt"),"Held interrupt turn did not start")
+            pos=screen.find("to interrupt")
+            mouse(pos);mouse((pos[0]+1,pos[1]),32);mouse(pos,up=True)
+            end=time.monotonic()+.5
+            while time.monotonic()<end:pump(.05)
+            assert screen.find("to interrupt"),"Dragging interrupted the turn"
+            click("to interrupt")
+            until(lambda:not screen.find("to interrupt") and screen.find("shift+tab mode"),"Interrupt hint did not stop the held turn")
+            assert not server.interrupt_release.is_set(),"Fixture completed before the touch interrupt"
+            server.interrupt_release.set()
             os.write(master,b"\x04");until(lambda:process.poll() is not None,"TUI did not exit")
             assert process.returncode==0,process.returncode
             assert termios.tcgetattr(slave)==saved,"TTY attributes not restored"
             assert not screen.mouse,"Mouse reporting not disabled on exit"
-            print("PASS: touch PTY (expand, capture, resize, choice, Other, freeform, footer submit/navigation, draft newline/help/close, mode, reasoning, runtime chord, multiline send, delivery, tty cleanup).")
+            print("PASS: touch PTY (expand, capture, resize, choice, Other, freeform, footer submit/navigation, draft newline/help/close, mode, reasoning, runtime chord, multiline send, delivery, agent center filter/help/chord/open/back, held turn interrupt, tty cleanup).")
         except BaseException:
             # Only the temporary fixture's isolated logs; never the user's Codex state.
             for diagnostic in state.rglob("*.log"):
@@ -344,6 +382,7 @@ trust_level = "trusted"
             raise
         finally:
             server.release.set()
+            server.interrupt_release.set()
             if process.poll() is None:
                 os.killpg(process.pid,signal.SIGTERM)
                 try:process.wait(timeout=5)

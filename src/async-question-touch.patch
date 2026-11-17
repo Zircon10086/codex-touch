@@ -1,22 +1,21 @@
 diff --git a/codex-rs/tui/src/app.rs b/codex-rs/tui/src/app.rs
-index ddddc61..d11715a 100644
+index ddddc61..bb5bf83 100644
 --- a/codex-rs/tui/src/app.rs
 +++ b/codex-rs/tui/src/app.rs
-@@ -854,6 +854,13 @@ impl App {
+@@ -854,6 +854,12 @@ impl App {
          app_server: &mut AppServerSession,
          event: TuiEvent,
      ) -> Result<AppRunControl> {
 +        if !matches!(&event, TuiEvent::Mouse(_) | TuiEvent::Draw)
 +            || !tui.is_owned_screen()
 +            || self.overlay.is_some()
-+            || !self.chat_widget.no_modal_or_popup_active()
 +        {
 +            self.chat_widget.cancel_shortcut_touch();
 +        }
          self.transcript_view
              .sync_patch_approval(self.chat_widget.current_patch_approval());
          // A chooser action must never decide a modal that has not been painted yet.
-@@ -945,6 +952,51 @@ impl App {
+@@ -945,6 +951,51 @@ impl App {
              }
              self.backtrack.select_exit_key = None;
          }
@@ -61,7 +60,7 @@ index ddddc61..d11715a 100644
 +                    return Ok(AppRunControl::Continue);
 +                }
 +                crate::shortcut_touch::Outcome::Activate(_) => {
-+                    unreachable!("help actions are local to the composer")
++                    unreachable!("help actions are local to their view")
 +                }
 +            }
 +        }
@@ -69,17 +68,901 @@ index ddddc61..d11715a 100644
              || self.handle_divider_event(tui, &event).await?
              || self.handle_rendered_selection_event(tui, &event)?
 diff --git a/codex-rs/tui/src/app/agent_center/hints.rs b/codex-rs/tui/src/app/agent_center/hints.rs
-index 1d59ffa..03c78a4 100644
+index 1d59ffa..006777b 100644
 --- a/codex-rs/tui/src/app/agent_center/hints.rs
 +++ b/codex-rs/tui/src/app/agent_center/hints.rs
-@@ -105,6 +105,7 @@ impl AgentsOverviewView {
-         let filter = self.center_filter_hint();
-         if !filter.is_empty() {
+@@ -3,26 +3,41 @@
+ use super::*;
+ use crate::key_hint;
+ use crate::shortcut_help::Group;
++use crate::shortcut_help::HelpRow;
+ use crate::shortcut_help::Shortcut;
+ use crate::style::footer_hint_label_style;
+ 
+-pub(super) fn hint_line(items: &[(String, String)]) -> Line<'static> {
+-    let mut line = Line::default();
+-    for (key, label) in items.iter().filter(|(key, _)| !key.is_empty()) {
+-        if !line.spans.is_empty() {
+-            line.spans.push("  ".dim());
++pub(super) fn hint_row(items: &[(Vec<ShortcutHint>, String)]) -> HelpRow {
++    let mut row = HelpRow::default();
++    let mut bytes = 0;
++    for (keys, label) in items.iter().filter(|(keys, _)| !keys.is_empty()) {
++        if !row.line.spans.is_empty() {
++            row.line.push_span("  ".dim());
++            bytes += 2;
++        }
++        for (index, key) in keys.iter().enumerate() {
++            if index > 0 {
++                row.line.push_span("/".dim());
++                bytes += 1;
++            }
++            let start = bytes;
++            let key_label = key.display_label();
++            bytes += key_label.len();
++            row.line.extend(key_hint::key_label_spans(&key_label));
++            if index + 1 == keys.len() {
++                let label = format!(" {label}");
++                bytes += label.len();
++                row.line
++                    .push_span(Span::styled(label, footer_hint_label_style().not_bold()));
++            }
++            row.hints.push((start..bytes, *key));
+         }
+-        line.spans.extend(key_hint::key_label_spans(key));
+-        line.spans.push(Span::styled(
+-            format!(" {label}"),
+-            footer_hint_label_style().not_bold(),
+-        ));
+     }
+-    line
++    row
+ }
+ 
+ impl AgentsOverviewView {
+-    fn center_list_hint(&self, action: ListAction) -> Option<ShortcutHint> {
++    pub(super) fn center_list_hint(&self, action: ListAction) -> Option<ShortcutHint> {
+         self.keymap.primary_hint(action).filter(|hint| {
+             !matches!(hint, ShortcutHint::Single(binding) if [
+                 &self.agents_keymap.resume,
+@@ -41,7 +56,7 @@ impl AgentsOverviewView {
+         })
+     }
+ 
+-    pub(super) fn center_filter_hint(&self) -> String {
++    pub(super) fn center_filter_keys(&self) -> Vec<ShortcutHint> {
+         [key_hint::plain(KeyCode::Tab), key_hint::shift(KeyCode::Tab)]
+             .into_iter()
+             .filter(|hint| {
+@@ -50,12 +65,14 @@ impl AgentsOverviewView {
+                     .center_shortcut_keys
+                     .is_pressed(KeyEvent::new(code, modifiers))
+             })
+-            .map(|hint| hint.display_label())
+-            .collect::<Vec<_>>()
+-            .join("/")
++            .map(ShortcutHint::from)
++            .collect()
+     }
+ 
+-    pub(super) fn center_help_lines(&self, width: u16) -> Vec<Line<'static>> {
++    pub(super) fn center_help_layout(
++        &self,
++        width: u16,
++    ) -> (Vec<Line<'static>>, Vec<crate::shortcut_touch::Target>) {
+         let mut navigate = Group {
+             title: "Navigate",
+             entries: Vec::new(),
+@@ -102,10 +119,19 @@ impl AgentsOverviewView {
+             title: "View",
+             entries: Vec::new(),
+         };
+-        let filter = self.center_filter_hint();
+-        if !filter.is_empty() {
++        let filter = self.center_filter_keys();
++        if self.state().touch.enabled {
++            for key in filter {
++                view.push(Some(key), "Filter");
++            }
++        } else if !filter.is_empty() {
              view.entries.push(Shortcut {
+-                key: filter,
 +                hint: None,
-                 key: filter,
++                key: filter
++                    .into_iter()
++                    .map(ShortcutHint::display_label)
++                    .collect::<Vec<_>>()
++                    .join("/"),
                  action: "Filter",
              });
+         }
+@@ -119,15 +145,18 @@ impl AgentsOverviewView {
+         ] {
+             view.push(self.agents_keymap.primary_hint(action, bindings), label);
+         }
+-        let mut lines = vec!["Task shortcuts".bold().into(), Line::default()];
+-        lines.extend(crate::shortcut_help::group_lines(
++        let mut lines = vec![
++            HelpRow::plain("Task shortcuts".bold().into()),
++            HelpRow::default(),
++        ];
++        lines.extend(crate::shortcut_help::group_rows(
+             [navigate, tasks, view],
+             width,
+         ));
+-        crate::wrapping::word_wrap_lines(lines, usize::from(width.max(/*other*/ 1)))
++        crate::shortcut_help::wrap_rows(lines, usize::from(width.max(/*other*/ 1)))
+     }
+ 
+-    pub(super) fn center_footer_hints(&self) -> Vec<(String, String)> {
++    pub(super) fn center_footer_hints(&self) -> Vec<(Vec<ShortcutHint>, String)> {
+         let state = self.state();
+         let mut hints = Vec::new();
+         if !state.help
+@@ -139,7 +168,10 @@ impl AgentsOverviewView {
+                         .is_pressed(KeyEvent::new(KeyCode::Char('?'), modifiers))
+                 })
+         {
+-            hints.push(("?".into(), "help".into()));
++            hints.push((
++                vec![key_hint::plain(KeyCode::Char('?')).into()],
++                "help".into(),
++            ));
+         }
+         let cancel = if state.help {
+             self.keymap.primary_hint(ListAction::Cancel)
+@@ -149,7 +181,7 @@ impl AgentsOverviewView {
+             None
+         };
+         if let Some(hint) = cancel {
+-            hints.push((hint.display_label(), "back".into()));
++            hints.push((vec![hint], "back".into()));
+         }
+         if state.help {
+             return hints;
+@@ -158,16 +190,14 @@ impl AgentsOverviewView {
+             let navigation = [ListAction::MoveUp, ListAction::MoveDown]
+                 .into_iter()
+                 .filter_map(|action| self.center_list_hint(action))
+-                .map(ShortcutHint::display_label)
+-                .collect::<Vec<_>>()
+-                .join("/");
++                .collect::<Vec<_>>();
+             if !navigation.is_empty() {
+                 hints.push((navigation, "move".into()));
+             }
+         }
+         if let Some(hint) = self.center_list_hint(ListAction::Accept) {
+             hints.push((
+-                hint.display_label(),
++                vec![hint],
+                 if state.rename_target.is_some() {
+                     "rename"
+                 } else {
+@@ -181,7 +211,7 @@ impl AgentsOverviewView {
+                 .agents_keymap
+                 .primary_hint("new_task", &self.agents_keymap.new_task)
+         {
+-            hints.push((hint.display_label(), "new".into()));
++            hints.push((vec![hint], "new".into()));
+         }
+         hints
+     }
+diff --git a/codex-rs/tui/src/app/agent_center/mod.rs b/codex-rs/tui/src/app/agent_center/mod.rs
+index 770eefc..5469bb5 100644
+--- a/codex-rs/tui/src/app/agent_center/mod.rs
++++ b/codex-rs/tui/src/app/agent_center/mod.rs
+@@ -5,6 +5,7 @@ mod input;
+ mod navigation;
+ mod render;
+ mod rows;
++pub(super) mod touch;
+ 
+ use super::*;
+ 
+diff --git a/codex-rs/tui/src/app/agent_center/render.rs b/codex-rs/tui/src/app/agent_center/render.rs
+index 473fee3..17b31aa 100644
+--- a/codex-rs/tui/src/app/agent_center/render.rs
++++ b/codex-rs/tui/src/app/agent_center/render.rs
+@@ -1,9 +1,13 @@
+ //! Status tabs, task rows, the rename editor and details share a wide/narrow layout.
+ 
+-use super::hints::hint_line;
++use super::hints::hint_row;
++use super::touch::CenterAction;
++use super::touch::render_hint;
+ use super::*;
+ use crate::bottom_pane::render_filled_tab_bar;
+ use crate::line_truncation::truncate_line_with_ellipsis_if_overflow;
++use crate::shortcut_touch::Action;
++use crate::shortcut_touch::Target;
+ use crossterm::cursor::SetCursorStyle;
+ use ratatui::widgets::WidgetRef;
+ use unicode_segmentation::UnicodeSegmentation;
+@@ -125,15 +129,16 @@ impl Renderable for AgentsOverviewView {
+ 
+     fn render(&self, area: Rect, buf: &mut Buffer) {
+         Clear.render(area, buf);
++        let mut targets = Vec::new();
+         let layout = self.center_layout(area);
+         let inset =
+             |area: Rect| area.inner(Margin::new(/*horizontal*/ 2, /*vertical*/ 0));
+         let footer_hints = self.center_footer_hints();
+         let state = self.state();
+         let filter_keys = if state.editing_metadata() {
+-            String::new()
++            Vec::new()
+         } else {
+-            self.center_filter_hint()
++            self.center_filter_keys()
+         };
+         let grouping = match state.grouping {
+             AgentsOverviewGrouping::Project => "Project",
+@@ -141,9 +146,10 @@ impl Renderable for AgentsOverviewView {
+             AgentsOverviewGrouping::Status => "Status",
+             AgentsOverviewGrouping::Model => "Model",
+         };
+-        let group_key = self
++        let group_hint = self
+             .agents_keymap
+-            .primary_hint("toggle_grouping", &self.agents_keymap.toggle_grouping)
++            .primary_hint("toggle_grouping", &self.agents_keymap.toggle_grouping);
++        let group_key = group_hint
+             .map(ShortcutHint::display_label)
+             .unwrap_or_default();
+         line(
+@@ -154,6 +160,25 @@ impl Renderable for AgentsOverviewView {
+             inset(layout.header),
+             buf,
+         );
++        let group_start = "Agent command center  ".width() as u16;
++        let group_label = format!("Group: {grouping}  {group_key}");
++        let header = inset(layout.header);
++        if !state.editing_metadata()
++            && !state.help
++            && header.height > 0
++            && group_start + group_label.width() as u16 <= header.width
++            && let Some(hint) = group_hint
++        {
++            targets.push(Target::new(
++                Rect::new(
++                    header.x + group_start,
++                    header.y,
++                    group_label.width() as u16,
++                    1,
++                ),
++                CenterAction::Keys(hint, false),
++            ));
++        }
+         let history = state.history.as_ref();
+         let labels = TASK_FILTERS
+             .iter()
+@@ -168,21 +193,52 @@ impl Renderable for AgentsOverviewView {
+             })
+             .collect::<Vec<_>>();
+         let mut tabs = inset(row(layout.header, /*offset*/ 1, /*height*/ 1));
+-        let filter_hint = hint_line(&[(filter_keys, "filter".into())]);
+-        if tabs.width >= 80 && filter_hint.width() > 0 {
+-            let hint_width = filter_hint.width() as u16;
+-            filter_hint.render(
++        let filter_hint = hint_row(&[(filter_keys, "filter".into())]);
++        if tabs.width >= 80 && filter_hint.line.width() > 0 {
++            let hint_width = filter_hint.line.width() as u16;
++            render_hint(
++                filter_hint,
+                 Rect::new(tabs.right() - hint_width, tabs.y, hint_width, tabs.height),
+                 buf,
++                &mut targets,
++                state.help,
+             );
+             tabs.width = tabs.width.saturating_sub(hint_width + 2);
+         }
+-        render_filled_tab_bar(
++        let tab_regions = render_filled_tab_bar(
+             &labels.iter().map(String::as_str).collect::<Vec<_>>(),
+             state.status_filter,
+             tabs,
+             buf,
+         );
++        if !state.editing_metadata() {
++            let first_tab = tab_regions.first().map(|(index, _)| *index);
++            let last_tab = tab_regions.last().map(|(index, _)| *index);
++            targets.extend(
++                tab_regions
++                    .into_iter()
++                    .filter(|(_, rect)| !rect.is_empty())
++                    .map(|(index, rect)| Target::new(rect, CenterAction::Filter(index))),
++            );
++            if let Some(first) = first_tab
++                && first > 0
++                && tabs.width >= 5
++            {
++                targets.push(Target::new(
++                    Rect::new(tabs.x, tabs.y, 1, 1),
++                    CenterAction::Filter(first - 1),
++                ));
++            }
++            if let Some(last) = last_tab
++                && last + 1 < TASK_FILTERS.len()
++                && tabs.width >= 7
++            {
++                targets.push(Target::new(
++                    Rect::new(tabs.right() - 1, tabs.y, 1, 1),
++                    CenterAction::Filter(last + 1),
++                ));
++            }
++        }
+         line(
+             "─"
+                 .repeat(usize::from(area.width.saturating_sub(/*rhs*/ 4)))
+@@ -238,7 +294,13 @@ impl Renderable for AgentsOverviewView {
+         if let Some(notice) = notice.filter(|_| !state.help) {
+             line(notice.dim(), inset(layout.footer), buf);
+         } else {
+-            line(hint_line(&footer_hints), inset(layout.footer), buf);
++            render_hint(
++                hint_row(&footer_hints),
++                inset(layout.footer),
++                buf,
++                &mut targets,
++                false,
++            );
+         }
+         let help = state.help;
+         drop(state);
+@@ -250,12 +312,37 @@ impl Renderable for AgentsOverviewView {
+             );
+             Clear.render(inset(body), buf);
+             let body = inset(body);
+-            let mut lines = self.center_help_lines(body.width);
++            let (mut lines, help_targets) = self.center_help_layout(body.width);
++            let visible = if lines.len() > usize::from(body.height) {
++                body.height.saturating_sub(1)
++            } else {
++                body.height
++            };
++            for target in help_targets {
++                if target
++                    .areas
++                    .iter()
++                    .all(|r| r.bottom() <= visible && r.right() <= body.width)
++                {
++                    let Action::Keys(hint) = target.action else {
++                        continue;
++                    };
++                    targets.push(Target {
++                        areas: target
++                            .areas
++                            .into_iter()
++                            .map(|r| Rect::new(body.x + r.x, body.y + r.y, r.width, r.height))
++                            .collect(),
++                        action: CenterAction::Keys(hint, true),
++                    });
++                }
++            }
+             if lines.len() > usize::from(body.height) {
+                 lines.truncate(usize::from(body.height.saturating_sub(/*rhs*/ 1)));
+                 lines.push("… resize to see all".dim().into());
+             }
+             Paragraph::new(lines).render(body, buf);
++            self.state().touch.set_layout(area, targets);
+             return;
+         }
+         for y in layout.gap.y..layout.gap.bottom() {
+@@ -265,7 +352,9 @@ impl Renderable for AgentsOverviewView {
+                     .set_style(Style::default().dim());
+             }
+         }
+-        self.render_center_rows(layout.list, buf);
++        self.render_center_rows(layout.list, buf, &mut targets);
++        self.state().touch_list = layout.list;
++        self.state().touch.set_layout(area, targets);
+         if !layout.details.is_empty() {
+             self.render_details(layout.details, buf);
+         }
+diff --git a/codex-rs/tui/src/app/agent_center/rows.rs b/codex-rs/tui/src/app/agent_center/rows.rs
+index c630e35..e015bf3 100644
+--- a/codex-rs/tui/src/app/agent_center/rows.rs
++++ b/codex-rs/tui/src/app/agent_center/rows.rs
+@@ -5,9 +5,11 @@
+ use super::navigation::CenterRow;
+ use super::render::line;
+ use super::render::row;
++use super::touch::CenterAction;
+ use super::*;
+ use crate::bottom_pane::selection_style;
+ use crate::resume_picker::format_relative_time;
++use crate::shortcut_touch::Target;
+ use crate::status::format_directory_display;
+ 
+ fn columns(area: Rect) -> (Rect, Rect, Rect) {
+@@ -35,7 +37,12 @@ fn columns(area: Rect) -> (Rect, Rect, Rect) {
+ }
+ 
+ impl AgentsOverviewView {
+-    pub(super) fn render_center_rows(&self, area: Rect, buf: &mut Buffer) {
++    pub(super) fn render_center_rows(
++        &self,
++        area: Rect,
++        buf: &mut Buffer,
++        targets: &mut Vec<Target<CenterAction>>,
++    ) {
+         let row_width = area.width;
+         let area = Rect {
+             width: row_width.saturating_sub(/*rhs*/ 1),
+@@ -111,6 +118,9 @@ impl AgentsOverviewView {
+                 CenterRow::ShowMore => {
+                     let rect = row(viewport, offset as u16, /*height*/ 1);
+                     let selected = self.selected == usize::MAX;
++                    if state.rename_target.is_none() {
++                        targets.push(Target::new(rect, CenterAction::More(selected)));
++                    }
+                     let style = if selected {
+                         selection_style()
+                     } else {
+@@ -195,6 +205,12 @@ impl AgentsOverviewView {
+                 line(format!("{group}  {count}").dim(), rect, buf);
+                 continue;
+             }
++            if state.rename_target.is_none() {
++                targets.push(Target::new(
++                    rect,
++                    CenterAction::Task(task.thread_id, index == self.selected),
++                ));
++            }
+             let style = if index == self.selected {
+                 selection_style()
+             } else {
+diff --git a/codex-rs/tui/src/app/agent_center/touch.rs b/codex-rs/tui/src/app/agent_center/touch.rs
+new file mode 100644
+index 0000000..c71f9e3
+--- /dev/null
++++ b/codex-rs/tui/src/app/agent_center/touch.rs
+@@ -0,0 +1,135 @@
++//! Hit regions are collected by the painter. Stable task IDs prevent refreshes
++//! from redirecting a tap to a different task; only the active view receives input.
++use super::*;
++use crate::shortcut_help::HelpRow;
++use crate::shortcut_touch::Action;
++use crate::shortcut_touch::Outcome;
++use crate::shortcut_touch::Target;
++use crossterm::event::MouseEvent;
++use crossterm::event::MouseEventKind;
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub(in crate::app::agents_overview_view) enum CenterAction {
++    Keys(ShortcutHint, bool),
++    Task(ThreadId, bool),
++    More(bool),
++    Filter(usize),
++}
++
++pub(super) fn render_hint(
++    row: HelpRow,
++    area: Rect,
++    buf: &mut Buffer,
++    targets: &mut Vec<Target<CenterAction>>,
++    close_help: bool,
++) {
++    if area.is_empty() {
++        return;
++    }
++    let width = crate::line_truncation::line_width(&row.line);
++    let visible =
++        usize::from(area.width).saturating_sub(usize::from(width > usize::from(area.width)));
++    let (lines, hints) = crate::shortcut_help::wrap_rows(vec![row], width.max(1));
++    for hint in hints {
++        if hint
++            .areas
++            .iter()
++            .all(|r| r.y == 0 && usize::from(r.right()) <= visible)
++        {
++            let Action::Keys(key) = hint.action else {
++                continue;
++            };
++            targets.push(Target {
++                areas: hint
++                    .areas
++                    .into_iter()
++                    .map(|r| Rect::new(area.x + r.x, area.y, r.width, 1))
++                    .collect(),
++                action: CenterAction::Keys(key, close_help),
++            });
++        }
++    }
++    if let Some(line) = lines.into_iter().next() {
++        super::render::line(line, area, buf);
++    }
++}
++
++impl AgentsOverviewView {
++    pub(in crate::app::agents_overview_view) fn handle_center_touch(
++        &mut self,
++        event: MouseEvent,
++    ) -> Outcome {
++        let mut state = self.state();
++        if !state.touch.enabled {
++            return Outcome::Ignored;
++        }
++        let outcome = state.touch.handle(event);
++        if matches!(outcome, Outcome::Ignored)
++            && !state.help
++            && state.rename_target.is_none()
++            && event.modifiers.is_empty()
++            && state.touch_list.contains((event.column, event.row).into())
++            && matches!(
++                event.kind,
++                MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
++            )
++        {
++            drop(state);
++            self.move_selection(event.kind == MouseEventKind::ScrollDown);
++            return Outcome::Consumed;
++        }
++        let action = match outcome {
++            Outcome::Ignored => return Outcome::Ignored,
++            Outcome::Consumed => return Outcome::Consumed,
++            Outcome::Activate(action) => action,
++        };
++        state.touch.clear();
++        match action {
++            CenterAction::Keys(hint, close_help) => {
++                if close_help {
++                    state.help = false;
++                }
++                return Outcome::Activate(Action::Keys(hint));
++            }
++            CenterAction::Filter(index) => {
++                if state.editing_metadata() {
++                    return Outcome::Consumed;
++                }
++                state.help = false;
++                state.status_filter = index;
++                state.scroll = 0;
++                drop(state);
++                self.reconcile_command_center_selection();
++            }
++            CenterAction::Task(_, _) | CenterAction::More(_) => {
++                if state.help || state.rename_target.is_some() {
++                    return Outcome::Consumed;
++                }
++                drop(state);
++                let (index, was_selected) = match action {
++                    CenterAction::Task(id, selected) => {
++                        let Some(index) = self.rows.iter().position(|row| row.thread_id == id)
++                        else {
++                            return Outcome::Consumed;
++                        };
++                        (index, selected)
++                    }
++                    CenterAction::More(selected) => (usize::MAX, selected),
++                    _ => unreachable!(),
++                };
++                if !self.selectable_indices().contains(&index) {
++                    return Outcome::Consumed;
++                }
++                let open = was_selected && self.selected == index;
++                self.selected = index;
++                self.state().show_more_selected = index == usize::MAX;
++                // Re-enter the application key route, preserving connection guards,
++                // search/rename semantics, configured chords and dispatch tokens.
++                if open && let Some(hint) = self.center_list_hint(ListAction::Accept) {
++                    return Outcome::Activate(Action::Keys(hint));
++                }
++            }
++        }
++        Outcome::Consumed
++    }
++}
+diff --git a/codex-rs/tui/src/app/agent_center_tests.rs b/codex-rs/tui/src/app/agent_center_tests.rs
+index c1ffef0..aec4153 100644
+--- a/codex-rs/tui/src/app/agent_center_tests.rs
++++ b/codex-rs/tui/src/app/agent_center_tests.rs
+@@ -1,6 +1,7 @@
+ //! Dashboard rows, paging, metadata clipping and status-filter regressions.
+ 
+ use super::*;
++use crate::key_hint::ShortcutHint;
+ use assert_matches::assert_matches;
+ use pretty_assertions::assert_eq;
+ 
+@@ -910,3 +911,241 @@ async fn live_center_show_more_navigation_search_and_loading() {
+     app.apply_agents_overview_search_page(id, Vec::new(), Default::default(), /*ok*/ true);
+     insta::assert_snapshot!(screen(&view, /*width*/ 80, /*height*/ 12).lines().nth(6).unwrap(), @"  ›   Show more matches");
+ }
++
++fn touch_position(buf: &ratatui::buffer::Buffer, text: &str) -> (u16, u16) {
++    for y in buf.area.y..buf.area.bottom() {
++        for x in buf.area.x..buf.area.right() {
++            if (x..buf.area.right())
++                .map(|x| buf[(x, y)].symbol())
++                .collect::<String>()
++                .starts_with(text)
++            {
++                return (x, y);
++            }
++        }
++    }
++    panic!("missing {text}");
++}
++
++fn touch_event(
++    pos: (u16, u16),
++    kind: crossterm::event::MouseEventKind,
++) -> crossterm::event::MouseEvent {
++    crossterm::event::MouseEvent {
++        kind,
++        column: pos.0,
++        row: pos.1,
++        modifiers: KeyModifiers::NONE,
++    }
++}
++
++fn touch_draw(view: &AgentsOverviewView, width: u16, height: u16) -> ratatui::buffer::Buffer {
++    let area = Rect::new(2, 3, width, height);
++    let mut buf = ratatui::buffer::Buffer::empty(area);
++    view.render(area, &mut buf);
++    buf
++}
++
++fn touch_tap(view: &mut AgentsOverviewView, pos: (u16, u16)) -> crate::shortcut_touch::Outcome {
++    use crossterm::event::MouseButton;
++    use crossterm::event::MouseEventKind;
++    assert_eq!(
++        view.handle_shortcut_touch(touch_event(pos, MouseEventKind::Down(MouseButton::Left))),
++        crate::shortcut_touch::Outcome::Consumed
++    );
++    view.handle_shortcut_touch(touch_event(pos, MouseEventKind::Up(MouseButton::Left)))
++}
++
++fn touch_dispatch(view: &mut AgentsOverviewView, pos: (u16, u16)) {
++    if let crate::shortcut_touch::Outcome::Activate(crate::shortcut_touch::Action::Keys(
++        ShortcutHint::Single(key),
++    )) = touch_tap(view, pos)
++    {
++        view.handle_key_event(crate::shortcut_touch::key_event(
++            key,
++            crossterm::event::KeyEventKind::Press,
++        ));
++    }
++}
++
++#[tokio::test]
++async fn live_center_touch_select_open_filter_and_help_actions() {
++    let mut app = make_test_app_with_chat().await;
++    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
++    app.app_event_tx = AppEventSender::new(tx);
++    let ids = [ThreadId::from_u128(701), ThreadId::from_u128(702)];
++    let mut view = app.agents_overview_view(
++        vec![
++            overview_thread(ids[0], None, "Alpha task", ThreadStatus::Idle),
++            overview_thread(
++                ids[1],
++                None,
++                "Bravo task",
++                ThreadStatus::Active {
++                    active_flags: vec![],
++                },
++            ),
++        ],
++        Some(ids[0]),
++    );
++    view.enable_shortcut_touch_for_test();
++    let buf = touch_draw(&view, 100, 30);
++    touch_dispatch(&mut view, touch_position(&buf, "Bravo task"));
++    assert_eq!(view.rows[view.selected_index().unwrap()].thread_id, ids[1]);
++    assert!(rx.try_recv().is_err());
++    let buf = touch_draw(&view, 100, 30);
++    touch_dispatch(&mut view, touch_position(&buf, "Bravo task"));
++    assert_matches!(rx.try_recv().unwrap(), AppEvent::SelectAgentsOverviewThread { thread_id } if thread_id == ids[1]);
++    let buf = touch_draw(&view, 100, 30);
++    touch_dispatch(&mut view, touch_position(&buf, "Ready 1"));
++    assert_eq!(view.rows[view.selected_index().unwrap()].thread_id, ids[0]);
++    let buf = touch_draw(&view, 100, 30);
++    touch_dispatch(&mut view, touch_position(&buf, "? help"));
++    let buf = touch_draw(&view, 100, 30);
++    touch_dispatch(&mut view, touch_position(&buf, "Rename"));
++    let buf = touch_draw(&view, 100, 30);
++    assert!(touch_position(&buf, "Rename ›").1 > 0);
++    view.handle_key_event(KeyCode::Esc.into());
++    let buf = touch_draw(&view, 100, 30);
++    touch_dispatch(&mut view, touch_position(&buf, "? help"));
++    let buf = touch_draw(&view, 100, 30);
++    touch_dispatch(&mut view, touch_position(&buf, "esc back"));
++    assert!(!view.is_complete());
++    let buf = touch_draw(&view, 100, 30);
++    touch_dispatch(&mut view, touch_position(&buf, "esc back"));
++    assert!(view.is_complete());
++}
++
++#[tokio::test]
++async fn live_center_touch_refresh_drag_resize_and_cover_cancel() {
++    use crossterm::event::MouseButton;
++    use crossterm::event::MouseEventKind;
++    let app = make_test_app_with_chat().await;
++    let ids = [ThreadId::from_u128(703), ThreadId::from_u128(704)];
++    let threads = vec![
++        overview_thread(ids[0], None, "Alpha task", ThreadStatus::Idle),
++        overview_thread(ids[1], None, "Bravo task", ThreadStatus::Idle),
++    ];
++    for change in 0..5 {
++        let mut view = app.agents_overview_view(threads.clone(), Some(ids[0]));
++        view.enable_shortcut_touch_for_test();
++        let buf = touch_draw(&view, 100, 30);
++        let pos = touch_position(&buf, "Alpha task");
++        view.handle_shortcut_touch(touch_event(pos, MouseEventKind::Down(MouseButton::Left)));
++        match change {
++            0 => {
++                touch_draw(&view, 99, 30);
++            }
++            1 => {
++                view.handle_shortcut_touch(touch_event(
++                    pos,
++                    MouseEventKind::Drag(MouseButton::Left),
++                ));
++            }
++            2 => {
++                view.cancel_shortcut_touch();
++                touch_draw(&view, 100, 30);
++            }
++            3 => {
++                view = app.agents_overview_view(threads.clone(), Some(ids[0]));
++                view.enable_shortcut_touch_for_test();
++                touch_draw(&view, 100, 30);
++            }
++            _ => {
++                view.rows.swap(0, 1);
++                touch_draw(&view, 100, 30);
++            }
++        }
++        let outcome =
++            view.handle_shortcut_touch(touch_event(pos, MouseEventKind::Up(MouseButton::Left)));
++        if change == 3 {
++            assert!(matches!(
++                outcome,
++                crate::shortcut_touch::Outcome::Activate(_)
++            ));
++        } else {
++            assert_eq!(outcome, crate::shortcut_touch::Outcome::Consumed);
++        }
++    }
++}
++
++#[tokio::test]
++async fn live_center_shortcut_touch_routes_through_modal_app() -> Result<()> {
++    use crossterm::event::MouseButton;
++    use crossterm::event::MouseEventKind;
++    let mut app = make_test_app_with_chat().await;
++    let view = app.agents_overview_view(Vec::new(), None);
++    view.enable_shortcut_touch_for_test();
++    app.chat_widget.show_bottom_pane_view(Box::new(view));
++    let mut server = crate::start_embedded_app_server_for_picker(&app.config).await?;
++    let mut tui = crate::tui::test_support::make_test_tui()?;
++    tui.set_owned_screen(true)?;
++    let size = Size::new(80, 24);
++    tui.terminal.resize(size)?;
++    for label in ["? help", "esc back", "esc back"] {
++        app.render_owned_transcript(&mut tui, size)?;
++        let pos = touch_position(
++            crate::custom_terminal::test_support::last_rendered_buffer(&tui.terminal),
++            label,
++        );
++        for kind in [
++            MouseEventKind::Down(MouseButton::Left),
++            MouseEventKind::Up(MouseButton::Left),
++        ] {
++            app.handle_tui_event(
++                &mut tui,
++                &mut server,
++                TuiEvent::Mouse(touch_event(pos, kind)),
++            )
++            .await?;
++        }
++    }
++    assert!(!app.chat_widget.has_active_modal());
++    tui.set_owned_screen(false)?;
++    server.shutdown().await?;
++    Ok(())
++}
++
++#[tokio::test]
++async fn live_center_touch_disabled_narrow_tabs_wheel_and_rename_guard() {
++    use crossterm::event::MouseButton;
++    use crossterm::event::MouseEventKind;
++    let app = make_test_app_with_chat().await;
++    let ids = [ThreadId::from_u128(705), ThreadId::from_u128(706)];
++    let mut view = app.agents_overview_view(
++        vec![
++            overview_thread(ids[0], None, "Alpha task", ThreadStatus::Idle),
++            overview_thread(ids[1], None, "Bravo task", ThreadStatus::Idle),
++        ],
++        Some(ids[0]),
++    );
++    let buf = touch_draw(&view, 100, 30);
++    let pos = touch_position(&buf, "Bravo task");
++    assert_eq!(
++        view.handle_shortcut_touch(touch_event(pos, MouseEventKind::Down(MouseButton::Left))),
++        crate::shortcut_touch::Outcome::Ignored
++    );
++    view.enable_shortcut_touch_for_test();
++    assert_eq!(
++        view.handle_shortcut_touch(touch_event(pos, MouseEventKind::ScrollDown)),
++        crate::shortcut_touch::Outcome::Consumed
++    );
++    assert_eq!(view.rows[view.selected_index().unwrap()].thread_id, ids[1]);
++    view.handle_key_event(KeyCode::Char('r').into());
++    let buf = touch_draw(&view, 100, 30);
++    let other = touch_position(&buf, "Alpha task");
++    assert_eq!(
++        view.handle_shortcut_touch(touch_event(other, MouseEventKind::Down(MouseButton::Left))),
++        crate::shortcut_touch::Outcome::Ignored
++    );
++    view.handle_key_event(KeyCode::Esc.into());
++    for _ in 0..3 {
++        view.handle_key_event(KeyCode::Tab.into());
++    }
++    let buf = touch_draw(&view, 24, 20);
++    touch_dispatch(&mut view, touch_position(&buf, "›"));
++    assert!(screen(&view, 24, 20).contains("Inactive"));
++    let buf = touch_draw(&view, 24, 20);
++    touch_dispatch(&mut view, touch_position(&buf, "‹"));
++    assert!(screen(&view, 24, 20).contains("Ready"));
++}
+diff --git a/codex-rs/tui/src/app/agents_overview_view.rs b/codex-rs/tui/src/app/agents_overview_view.rs
+index 6a2a7a5..b2d0f45 100644
+--- a/codex-rs/tui/src/app/agents_overview_view.rs
++++ b/codex-rs/tui/src/app/agents_overview_view.rs
+@@ -159,6 +159,8 @@ pub(super) fn directory_group_key(cwd: &Path, worktrees_enabled: bool) -> PathBu
+ 
+ #[derive(Default)]
+ pub(super) struct AgentsOverviewViewState {
++    touch: crate::shortcut_touch::ShortcutTouch<command_center::touch::CenterAction>,
++    touch_list: Rect,
+     scroll: usize,
+     page_height: usize,
+     status_filter: usize,
+@@ -291,6 +293,7 @@ impl AgentsOverviewView {
+             .collect();
+         {
+             let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
++            state.touch.enabled = std::env::var("CODEX_TOUCH").is_ok_and(|value| value == "1");
+             let vim_enabled = state.vim_enabled;
+             if state.rename_target.is_some() {
+                 state.input.set_keymap_bindings(&keymap);
+@@ -325,6 +328,11 @@ impl AgentsOverviewView {
+         view
+     }
+ 
++    #[cfg(test)]
++    pub(super) fn enable_shortcut_touch_for_test(&self) {
++        self.state().touch.enabled = true;
++    }
++
+     pub(super) fn thread_ids(&self) -> Vec<ThreadId> {
+         self.rows.iter().map(|row| row.thread_id).collect()
+     }
+@@ -613,6 +621,21 @@ impl AgentsOverviewView {
+ }
+ 
+ impl BottomPaneView for AgentsOverviewView {
++    fn shortcut_touch_active(&self) -> bool {
++        self.state().touch.active()
++    }
++
++    fn cancel_shortcut_touch(&self) {
++        self.state().touch.clear();
++    }
++
++    fn handle_shortcut_touch(
++        &mut self,
++        event: crossterm::event::MouseEvent,
++    ) -> crate::shortcut_touch::Outcome {
++        self.handle_center_touch(event)
++    }
++
+     fn view_id(&self) -> Option<&'static str> {
+         Some(AGENTS_OVERVIEW_VIEW_ID)
+     }
 diff --git a/codex-rs/tui/src/app/owned_transcript.rs b/codex-rs/tui/src/app/owned_transcript.rs
 index 37e406c..1e719da 100644
 --- a/codex-rs/tui/src/app/owned_transcript.rs
@@ -907,6 +1790,29 @@ index 7023328..30ab202 100644
          self.visible_options.set((0, 0));
          let incoming = std::mem::replace(&mut self.state, saved);
          let mut answered_ids = incoming.answered_ids;
+diff --git a/codex-rs/tui/src/bottom_pane/bottom_pane_view.rs b/codex-rs/tui/src/bottom_pane/bottom_pane_view.rs
+index de5e68d..3229f8e 100644
+--- a/codex-rs/tui/src/bottom_pane/bottom_pane_view.rs
++++ b/codex-rs/tui/src/bottom_pane/bottom_pane_view.rs
+@@ -45,6 +45,18 @@ pub(crate) trait BottomPaneView: Renderable {
+     /// Mark a queued editor activation inactive after a non-key interaction.
+     fn interrupt_config_editor_transition(&mut self) {}
+ 
++    /// Only the topmost view receives shortcut taps; covered owners are cancelled.
++    fn shortcut_touch_active(&self) -> bool {
++        false
++    }
++    fn cancel_shortcut_touch(&self) {}
++    fn handle_shortcut_touch(
++        &mut self,
++        _event: crossterm::event::MouseEvent,
++    ) -> crate::shortcut_touch::Outcome {
++        crate::shortcut_touch::Outcome::Ignored
++    }
++
+     /// Handle a key event while the view is active. A redraw is always
+     /// scheduled after this call.
+     fn handle_key_event(&mut self, _key_event: KeyEvent) {}
 diff --git a/codex-rs/tui/src/bottom_pane/chat_composer.rs b/codex-rs/tui/src/bottom_pane/chat_composer.rs
 index db3b79f..436fb8a 100644
 --- a/codex-rs/tui/src/bottom_pane/chat_composer.rs
@@ -1182,7 +2088,7 @@ index 4aac82f..ebbd63c 100644
              && !self.footer.context_window_pending
 diff --git a/codex-rs/tui/src/bottom_pane/chat_composer/shortcut_touch.rs b/codex-rs/tui/src/bottom_pane/chat_composer/shortcut_touch.rs
 new file mode 100644
-index 0000000..088b3d1
+index 0000000..e5a141b
 --- /dev/null
 +++ b/codex-rs/tui/src/bottom_pane/chat_composer/shortcut_touch.rs
 @@ -0,0 +1,159 @@
@@ -1197,8 +2103,8 @@ index 0000000..088b3d1
 +        self.footer.shortcut_touch.borrow().active()
 +    }
 +
-+    pub(crate) fn cancel_shortcut_touch(&mut self) {
-+        self.footer.shortcut_touch.get_mut().clear();
++    pub(crate) fn cancel_shortcut_touch(&self) {
++        self.footer.shortcut_touch.borrow_mut().clear();
 +    }
 +
 +    pub(crate) fn handle_shortcut_touch(&mut self, mouse: crossterm::event::MouseEvent) -> Outcome {
@@ -1208,12 +2114,12 @@ index 0000000..088b3d1
 +            match action {
 +                Action::Help => {
 +                    self.footer.mode = FooterMode::ShortcutOverlay;
-+                    self.footer.shortcut_touch.get_mut().clear();
++                    self.footer.shortcut_touch.borrow_mut().clear();
 +                    return Outcome::Consumed;
 +                }
 +                Action::Close => {
 +                    self.footer.mode = reset_mode_after_activity(self.footer.mode);
-+                    self.footer.shortcut_touch.get_mut().clear();
++                    self.footer.shortcut_touch.borrow_mut().clear();
 +                    return Outcome::Consumed;
 +                }
 +                Action::Keys(_) => {
@@ -1221,7 +2127,7 @@ index 0000000..088b3d1
 +                    if self.footer.mode == FooterMode::ShortcutOverlay {
 +                        self.footer.mode = reset_mode_after_activity(self.footer.mode);
 +                    }
-+                    self.footer.shortcut_touch.get_mut().clear();
++                    self.footer.shortcut_touch.borrow_mut().clear();
 +                }
 +            }
 +        }
@@ -1346,10 +2252,26 @@ index 0000000..088b3d1
 +    }
 +}
 diff --git a/codex-rs/tui/src/bottom_pane/mod.rs b/codex-rs/tui/src/bottom_pane/mod.rs
-index a165ca1..316f190 100644
+index a165ca1..75c6edd 100644
 --- a/codex-rs/tui/src/bottom_pane/mod.rs
 +++ b/codex-rs/tui/src/bottom_pane/mod.rs
-@@ -1965,6 +1965,9 @@ impl BottomPane {
+@@ -767,6 +767,7 @@ impl BottomPane {
+     }
+ 
+     fn push_view(&mut self, view: Box<dyn BottomPaneView>) {
++        self.cancel_shortcut_touch();
+         self.key_chord_reset_requested = true;
+         self.view_stack.push(view);
+         self.schedule_active_view_frame();
+@@ -774,6 +775,7 @@ impl BottomPane {
+     }
+ 
+     fn pop_active_view_with_completion(&mut self, completion: Option<ViewCompletion>) {
++        self.cancel_shortcut_touch();
+         if self.view_stack.pop().is_some() {
+             match completion {
+                 Some(ViewCompletion::Accepted) => {
+@@ -1965,6 +1967,9 @@ impl BottomPane {
      }
  
      pub(crate) fn end_composer_drag(&mut self) {
@@ -1359,7 +2281,7 @@ index a165ca1..316f190 100644
          self.composer.end_mouse_drag();
      }
  
-@@ -2025,6 +2028,17 @@ impl BottomPane {
+@@ -2025,6 +2030,17 @@ impl BottomPane {
          if event.kind != crossterm::event::MouseEventKind::Moved {
              self.view_transition_key_guard = None;
          }
@@ -1377,24 +2299,59 @@ index a165ca1..316f190 100644
          if self.has_active_view() || self.questions.as_ref().is_some_and(|q| q.expanded) {
              self.composer.end_mouse_drag();
              return false;
-@@ -2032,6 +2046,24 @@ impl BottomPane {
+@@ -2032,6 +2048,59 @@ impl BottomPane {
          self.composer.prepare_mouse(event)
      }
  
 +    pub(crate) fn shortcut_touch_active(&self) -> bool {
-+        self.composer.shortcut_touch_active()
++        if self.warnings_active() {
++            return false;
++        }
++        if let Some(view) = self.view_stack.last() {
++            return view.shortcut_touch_active();
++        }
++        self.no_modal_or_popup_active()
++            && (self.composer.shortcut_touch_active()
++                || self
++                    .status
++                    .as_ref()
++                    .is_some_and(|status| status.shortcut_touch.borrow().active()))
 +    }
 +
 +    pub(crate) fn cancel_shortcut_touch(&mut self) {
 +        self.composer.cancel_shortcut_touch();
++        if let Some(status) = &self.status {
++            status.shortcut_touch.borrow_mut().cancel();
++        }
++        for view in &self.view_stack {
++            view.cancel_shortcut_touch();
++        }
 +    }
 +
 +    pub(crate) fn handle_shortcut_touch(
 +        &mut self,
 +        event: crossterm::event::MouseEvent,
 +    ) -> crate::shortcut_touch::Outcome {
++        use crate::shortcut_touch::Outcome;
++        if self.warnings_active() {
++            self.cancel_shortcut_touch();
++            return Outcome::Ignored;
++        }
 +        if !self.no_modal_or_popup_active() {
 +            self.composer.cancel_shortcut_touch();
++            if let Some(status) = &self.status {
++                status.shortcut_touch.borrow_mut().cancel();
++            }
++            return self
++                .view_stack
++                .last_mut()
++                .map_or(Outcome::Ignored, |view| view.handle_shortcut_touch(event));
++        }
++        if let Some(status) = &self.status {
++            let outcome = status.shortcut_touch.borrow_mut().handle(event);
++            if outcome != Outcome::Ignored {
++                return outcome;
++            }
 +        }
 +        self.composer.handle_shortcut_touch(event)
 +    }
@@ -1402,10 +2359,23 @@ index a165ca1..316f190 100644
      pub(crate) fn handle_composer_mouse(&mut self, event: crossterm::event::MouseEvent) -> bool {
          self.composer.handle_mouse(event)
      }
-@@ -2461,6 +2493,11 @@ impl BottomPane {
+@@ -2461,6 +2530,24 @@ impl BottomPane {
          mut options: ComposerRenderOptions<'a>,
          views: &'a [Box<dyn BottomPaneView>],
      ) -> RenderableItem<'a> {
++        if !self.view_stack.is_empty() || self.warnings_active() {
++            self.composer.cancel_shortcut_touch();
++            if let Some(status) = &self.status {
++                status.shortcut_touch.borrow_mut().clear();
++            }
++            let covered = self
++                .view_stack
++                .len()
++                .saturating_sub(usize::from(!self.warnings_active()));
++            for view in &self.view_stack[..covered] {
++                view.cancel_shortcut_touch();
++            }
++        }
 +        if (!views.is_empty() || self.warnings_active())
 +            && let Some(questions) = &self.questions
 +        {
@@ -1414,7 +2384,7 @@ index a165ca1..316f190 100644
          if self.warnings_active()
              && let Some(warnings) = &self.warnings_view
          {
-@@ -2574,7 +2611,13 @@ impl BottomPane {
+@@ -2574,7 +2661,13 @@ impl BottomPane {
              if let Some(summary) = question_summary {
                  flex.push(
                      /*flex*/ 0,
@@ -1602,25 +2572,21 @@ index b223430..5ac4b7d 100644
 +    (rendered.lines, regions)
 +}
 diff --git a/codex-rs/tui/src/bottom_pane/shortcut_overlay.rs b/codex-rs/tui/src/bottom_pane/shortcut_overlay.rs
-index f90edc7..0367183 100644
+index f90edc7..6bfa958 100644
 --- a/codex-rs/tui/src/bottom_pane/shortcut_overlay.rs
 +++ b/codex-rs/tui/src/bottom_pane/shortcut_overlay.rs
-@@ -9,7 +9,10 @@ use crate::key_hint;
+@@ -9,7 +9,9 @@ use crate::key_hint;
  use crate::multi_agents::next_agent_shortcut;
  use crate::multi_agents::previous_agent_shortcut;
  use crate::shortcut_help::Group;
 +use crate::shortcut_help::HelpRow;
  use crate::shortcut_help::Shortcut;
-+use crate::shortcut_touch::Action;
 +use crate::shortcut_touch::Target;
  use crate::style::accent_color;
  use crate::style::secondary_text_style;
  use crate::wrapping::word_wrap_lines;
-@@ -22,8 +25,13 @@ use ratatui::style::Stylize;
- use ratatui::text::Line;
- use ratatui::widgets::Paragraph;
+@@ -24,6 +26,10 @@ use ratatui::widgets::Paragraph;
  use ratatui::widgets::Widget;
-+use unicode_width::UnicodeWidthStr;
  
  pub(super) fn lines(props: &FooterProps, width: u16) -> Vec<Line<'static>> {
 +    layout(props, width).0
@@ -1630,7 +2596,7 @@ index f90edc7..0367183 100644
      let hints = props.key_hints;
      let mut compose = Group {
          title: "Compose",
-@@ -47,6 +55,7 @@ pub(super) fn lines(props: &FooterProps, width: u16) -> Vec<Line<'static>> {
+@@ -47,6 +53,7 @@ pub(super) fn lines(props: &FooterProps, width: u16) -> Vec<Line<'static>> {
      if let Some(key) = hints.edit_previous {
          let label = key.display_label();
          compose.entries.push(Shortcut {
@@ -1638,7 +2604,7 @@ index f90edc7..0367183 100644
              key: if props.esc_backtrack_hint {
                  label
              } else {
-@@ -78,6 +87,7 @@ pub(super) fn lines(props: &FooterProps, width: u16) -> Vec<Line<'static>> {
+@@ -78,6 +85,7 @@ pub(super) fn lines(props: &FooterProps, width: u16) -> Vec<Line<'static>> {
      session.push(hints.toggle_voice, "Voice");
      session.push(hints.agents, "Agents (empty prompt)");
      session.entries.push(Shortcut {
@@ -1646,7 +2612,7 @@ index f90edc7..0367183 100644
          key: format!(
              "{} / {}",
              previous_agent_shortcut().display_label(),
-@@ -103,11 +113,13 @@ pub(super) fn lines(props: &FooterProps, width: u16) -> Vec<Line<'static>> {
+@@ -103,11 +111,13 @@ pub(super) fn lines(props: &FooterProps, width: u16) -> Vec<Line<'static>> {
      transcript.push(hints.find_transcript, "Find text");
      transcript.entries.extend([
          Shortcut {
@@ -1660,7 +2626,7 @@ index f90edc7..0367183 100644
              key: format!(
                  "{} / {}",
                  key_hint::ctrl(KeyCode::Home).display_label(),
-@@ -117,6 +129,7 @@ pub(super) fn lines(props: &FooterProps, width: u16) -> Vec<Line<'static>> {
+@@ -117,6 +127,7 @@ pub(super) fn lines(props: &FooterProps, width: u16) -> Vec<Line<'static>> {
          },
          // Keep both jump alternatives: the terminal may be on another OS over SSH.
          Shortcut {
@@ -1668,7 +2634,7 @@ index f90edc7..0367183 100644
              key: format!(
                  "{} / {}",
                  key_hint::KeyBinding::new(
-@@ -134,15 +147,64 @@ pub(super) fn lines(props: &FooterProps, width: u16) -> Vec<Line<'static>> {
+@@ -134,15 +145,23 @@ pub(super) fn lines(props: &FooterProps, width: u16) -> Vec<Line<'static>> {
          },
      ]);
  
@@ -1693,52 +2659,11 @@ index f90edc7..0367183 100644
 -    word_wrap_lines(&result, width)
 +    result.push(HelpRow::default());
 +    result.extend(footer_lines(width).into_iter().map(HelpRow::plain));
-+    let mut lines = Vec::new();
-+    let mut targets = Vec::new();
-+    for row in result {
-+        let text: String = row
-+            .line
-+            .spans
-+            .iter()
-+            .map(|span| span.content.as_ref())
-+            .collect();
-+        let wrapped = crate::wrapping::word_wrap_line_with_source(&row.line, width);
-+        for (range, hint) in row.hints {
-+            let mut areas = Vec::new();
-+            for (index, part) in wrapped.iter().enumerate() {
-+                let start = range.start.max(part.range.start);
-+                let end = range.end.min(part.range.end);
-+                if start < end {
-+                    let x = text[part.range.start..start].width() as u16;
-+                    let cells = text[start..end].width() as u16;
-+                    if cells > 0 {
-+                        areas.push(Rect::new(x, (lines.len() + index) as u16, cells, 1));
-+                    }
-+                }
-+            }
-+            if !areas.is_empty() {
-+                targets.push(Target {
-+                    areas,
-+                    action: Action::Keys(hint),
-+                });
-+            }
-+        }
-+        lines.extend(wrapped.into_iter().map(|part| {
-+            Line::from(
-+                part.line
-+                    .spans
-+                    .into_iter()
-+                    .map(|span| ratatui::text::Span::styled(span.content.into_owned(), span.style))
-+                    .collect::<Vec<_>>(),
-+            )
-+            .style(part.line.style)
-+        }));
-+    }
-+    (lines, targets)
++    crate::shortcut_help::wrap_rows(result, width)
  }
  
  pub(super) fn close_hint(props: &FooterProps, width: u16) -> Line<'static> {
-@@ -170,20 +232,35 @@ fn footer_lines(width: usize) -> Vec<Line<'static>> {
+@@ -170,20 +189,35 @@ fn footer_lines(width: usize) -> Vec<Line<'static>> {
      )
  }
  
@@ -2153,7 +3078,7 @@ index 8b3608c..253de56 100644
  mod sidebar_tab_strip;
  mod skills_helpers;
 diff --git a/codex-rs/tui/src/shortcut_help.rs b/codex-rs/tui/src/shortcut_help.rs
-index ff78847..b2571aa 100644
+index ff78847..6b4f63a 100644
 --- a/codex-rs/tui/src/shortcut_help.rs
 +++ b/codex-rs/tui/src/shortcut_help.rs
 @@ -10,14 +10,17 @@ use ratatui::text::Span;
@@ -2175,7 +3100,7 @@ index ff78847..b2571aa 100644
              action,
          }
      }
-@@ -35,28 +38,65 @@ impl Group {
+@@ -35,28 +38,58 @@ impl Group {
          }
      }
  
@@ -2208,6 +3133,7 @@ index ff78847..b2571aa 100644
      }
  }
  
+-pub(crate) fn group_lines(groups: [Group; 3], width: u16) -> Vec<Line<'static>> {
 +#[derive(Clone, Default)]
 +pub(crate) struct HelpRow {
 +    pub(crate) line: Line<'static>,
@@ -2221,13 +3147,6 @@ index ff78847..b2571aa 100644
 +            hints: Vec::new(),
 +        }
 +    }
-+}
-+
- pub(crate) fn group_lines(groups: [Group; 3], width: u16) -> Vec<Line<'static>> {
-+    group_rows(groups, width)
-+        .into_iter()
-+        .map(|row| row.line)
-+        .collect()
 +}
 +
 +pub(crate) fn group_rows(groups: [Group; 3], width: u16) -> Vec<HelpRow> {
@@ -2245,7 +3164,7 @@ index ff78847..b2571aa 100644
          .collect();
      let width = usize::from(width.max(/*other*/ 1));
      let mut result = Vec::new();
-@@ -64,7 +104,7 @@ pub(crate) fn group_lines(groups: [Group; 3], width: u16) -> Vec<Line<'static>>
+@@ -64,7 +97,7 @@ pub(crate) fn group_lines(groups: [Group; 3], width: u16) -> Vec<Line<'static>>
          result.extend(columns(&groups, &widths));
      } else if widths[0] + COLUMN_GAP + widths[1].max(widths[2]) <= width {
          let mut right = groups[1].clone();
@@ -2254,7 +3173,7 @@ index ff78847..b2571aa 100644
          right.extend(groups[2].clone());
          result.extend(columns(
              &[groups[0].clone(), right],
-@@ -73,7 +113,7 @@ pub(crate) fn group_lines(groups: [Group; 3], width: u16) -> Vec<Line<'static>>
+@@ -73,7 +106,7 @@ pub(crate) fn group_lines(groups: [Group; 3], width: u16) -> Vec<Line<'static>>
      } else {
          for (index, group) in groups.into_iter().enumerate() {
              if index > 0 {
@@ -2263,7 +3182,7 @@ index ff78847..b2571aa 100644
              }
              result.extend(group);
          }
-@@ -81,20 +121,28 @@ pub(crate) fn group_lines(groups: [Group; 3], width: u16) -> Vec<Line<'static>>
+@@ -81,20 +114,81 @@ pub(crate) fn group_lines(groups: [Group; 3], width: u16) -> Vec<Line<'static>>
      result
  }
  
@@ -2296,12 +3215,65 @@ index ff78847..b2571aa 100644
          })
          .collect()
  }
++
++/// Wrap help text and its semantic hit regions together, in local coordinates.
++pub(crate) fn wrap_rows(
++    rows: Vec<HelpRow>,
++    width: usize,
++) -> (Vec<Line<'static>>, Vec<crate::shortcut_touch::Target>) {
++    use crate::shortcut_touch::Action;
++    use crate::shortcut_touch::Target;
++    use ratatui::layout::Rect;
++    use unicode_width::UnicodeWidthStr;
++    let mut lines = Vec::new();
++    let mut targets = Vec::new();
++    for row in rows {
++        let text: String = row
++            .line
++            .spans
++            .iter()
++            .map(|span| span.content.as_ref())
++            .collect();
++        let wrapped = crate::wrapping::word_wrap_line_with_source(&row.line, width);
++        for (range, hint) in row.hints {
++            let mut areas = Vec::new();
++            for (index, part) in wrapped.iter().enumerate() {
++                let start = range.start.max(part.range.start);
++                let end = range.end.min(part.range.end);
++                if start < end {
++                    let x = text[part.range.start..start].width() as u16;
++                    let cells = text[start..end].width() as u16;
++                    if cells > 0 {
++                        areas.push(Rect::new(x, (lines.len() + index) as u16, cells, 1));
++                    }
++                }
++            }
++            if !areas.is_empty() {
++                targets.push(Target {
++                    areas,
++                    action: Action::Keys(hint),
++                });
++            }
++        }
++        lines.extend(wrapped.into_iter().map(|part| {
++            Line::from(
++                part.line
++                    .spans
++                    .into_iter()
++                    .map(|span| ratatui::text::Span::styled(span.content.into_owned(), span.style))
++                    .collect::<Vec<_>>(),
++            )
++            .style(part.line.style)
++        }));
++    }
++    (lines, targets)
++}
 diff --git a/codex-rs/tui/src/shortcut_touch.rs b/codex-rs/tui/src/shortcut_touch.rs
 new file mode 100644
-index 0000000..f5245b1
+index 0000000..d90b84a
 --- /dev/null
 +++ b/codex-rs/tui/src/shortcut_touch.rs
-@@ -0,0 +1,270 @@
+@@ -0,0 +1,282 @@
 +//! Opt-in taps on rendered shortcut hints. Owners provide semantic actions and
 +//! actual painted rectangles; no displayed key label is parsed back into input.
 +//! A gesture stays captured until release, even after cancellation, so dragging
@@ -2335,13 +3307,13 @@ index 0000000..f5245b1
 +}
 +
 +#[derive(Clone, Debug, PartialEq, Eq)]
-+pub(crate) struct Target {
++pub(crate) struct Target<A = Action> {
 +    pub(crate) areas: Vec<Rect>,
-+    pub(crate) action: Action,
++    pub(crate) action: A,
 +}
 +
-+impl Target {
-+    pub(crate) fn new(area: Rect, action: Action) -> Self {
++impl<A> Target<A> {
++    pub(crate) fn new(area: Rect, action: A) -> Self {
 +        Self {
 +            areas: vec![area],
 +            action,
@@ -2350,22 +3322,34 @@ index 0000000..f5245b1
 +}
 +
 +#[derive(Debug, PartialEq, Eq)]
-+pub(crate) enum Outcome {
++pub(crate) enum Outcome<A = Action> {
 +    Ignored,
 +    Consumed,
-+    Activate(Action),
++    Activate(A),
 +}
 +
-+#[derive(Default)]
-+pub(crate) struct ShortcutTouch {
++#[derive(Clone, Debug)]
++pub(crate) struct ShortcutTouch<A = Action> {
 +    pub(crate) enabled: bool,
 +    area: Rect,
-+    targets: Vec<Target>,
++    targets: Vec<Target<A>>,
 +    pressed: Option<usize>,
 +    captured: bool,
 +}
 +
-+impl ShortcutTouch {
++impl<A> Default for ShortcutTouch<A> {
++    fn default() -> Self {
++        Self {
++            enabled: false,
++            area: Rect::default(),
++            targets: Vec::new(),
++            pressed: None,
++            captured: false,
++        }
++    }
++}
++
++impl<A: Copy + Eq> ShortcutTouch<A> {
 +    pub(crate) fn new() -> Self {
 +        Self {
 +            enabled: std::env::var("CODEX_TOUCH").is_ok_and(|value| value == "1"),
@@ -2373,7 +3357,7 @@ index 0000000..f5245b1
 +        }
 +    }
 +
-+    pub(crate) fn set_layout(&mut self, area: Rect, targets: Vec<Target>) {
++    pub(crate) fn set_layout(&mut self, area: Rect, targets: Vec<Target<A>>) {
 +        if self.area != area || self.targets != targets {
 +            self.cancel();
 +        }
@@ -2394,7 +3378,7 @@ index 0000000..f5245b1
 +        self.targets.clear();
 +    }
 +
-+    pub(crate) fn handle(&mut self, mouse: MouseEvent) -> Outcome {
++    pub(crate) fn handle(&mut self, mouse: MouseEvent) -> Outcome<A> {
 +        if !self.enabled {
 +            return Outcome::Ignored;
 +        }
@@ -2571,4 +3555,264 @@ index 0000000..f5245b1
 +            Outcome::Ignored
 +        );
 +    }
++}
+diff --git a/codex-rs/tui/src/status_indicator_widget.rs b/codex-rs/tui/src/status_indicator_widget.rs
+index cdd4ce4..fb3f4f3 100644
+--- a/codex-rs/tui/src/status_indicator_widget.rs
++++ b/codex-rs/tui/src/status_indicator_widget.rs
+@@ -6,6 +6,12 @@
+ //! Hook activity uses the remaining space or its own line on overflow, so it
+ //! never displaces background-process controls.
+ 
++use crate::shortcut_touch::Action;
++
++use crate::shortcut_touch::ShortcutTouch;
++
++use crate::shortcut_touch::Target;
++use std::cell::RefCell;
+ use std::time::Duration;
+ use std::time::Instant;
+ 
+@@ -65,6 +71,7 @@ pub(crate) struct StatusIndicatorWidget {
+     hook_status_message: Option<String>,
+     show_interrupt_hint: bool,
+     interrupt_binding: Option<ShortcutHint>,
++    pub(crate) shortcut_touch: RefCell<ShortcutTouch>,
+ 
+     app_event_tx: AppEventSender,
+     frame_requester: FrameRequester,
+@@ -97,6 +104,7 @@ impl StatusIndicatorWidget {
+         effects: codex_config::types::TuiEffects,
+     ) -> Self {
+         Self {
++            shortcut_touch: RefCell::new(ShortcutTouch::new()),
+             header: String::from("Working"),
+             header_started_at: Instant::now(),
+             details: None,
+@@ -173,10 +181,16 @@ impl StatusIndicatorWidget {
+     }
+ 
+     pub(crate) fn set_interrupt_hint_visible(&mut self, visible: bool) {
++        if self.show_interrupt_hint != visible {
++            self.shortcut_touch.borrow_mut().clear();
++        }
+         self.show_interrupt_hint = visible;
+     }
+ 
+     pub(crate) fn set_interrupt_binding(&mut self, binding: Option<ShortcutHint>) {
++        if self.interrupt_binding != binding {
++            self.shortcut_touch.borrow_mut().clear();
++        }
+         self.interrupt_binding = binding;
+     }
+ 
+@@ -226,6 +240,10 @@ impl StatusIndicator<'_> {
+     // Share width decisions between height measurement and rendering, including
+     // wide Unicode characters, remapped interrupt hints, and elapsed-time text.
+     fn lines(&self, width: u16) -> Vec<Line<'static>> {
++        self.layout(width).0
++    }
++
++    fn layout(&self, width: u16) -> (Vec<Line<'static>>, Vec<Target>) {
+         let row = self.row;
+         let now = Instant::now();
+         let elapsed_duration = self.timer.display_started_at.map_or_else(
+@@ -238,6 +256,7 @@ impl StatusIndicator<'_> {
+         let shimmer =
+             MotionMode::from_animations_enabled(row.animations_enabled && row.effects.shimmer);
+ 
++        let mut targets = Vec::new();
+         let mut spans = Vec::with_capacity(5);
+         if let Some(indicator) = activity_indicator(
+             Some(self.timer.last_resume_at),
+@@ -259,8 +278,16 @@ impl StatusIndicator<'_> {
+             && let Some(interrupt_binding) = row.interrupt_binding
+         {
+             spans.push(format!("({pretty_elapsed} • ").dim());
++            let start = line_width(&Line::from(spans.clone()));
+             spans.extend(interrupt_binding.spans());
++            let end = line_width(&Line::from(spans.clone())) + display_width(" to interrupt");
+             spans.push(" to interrupt)".dim());
++            if end <= usize::from(width) {
++                targets.push(Target::new(
++                    Rect::new(start as u16, 0, (end - start) as u16, 1),
++                    Action::Keys(interrupt_binding),
++                ));
++            }
+         } else {
+             spans.push(format!("({pretty_elapsed})").dim());
+         }
+@@ -285,6 +312,9 @@ impl StatusIndicator<'_> {
+                 ));
+             }
+         }
++        let visible = usize::from(width)
++            .saturating_sub(usize::from(line_width(&header) > usize::from(width)));
++        targets.retain(|target| usize::from(target.areas[0].right()) <= visible);
+         let mut lines = Vec::new();
+         lines.push(truncate_line_with_ellipsis_if_overflow(
+             header,
+@@ -292,7 +322,7 @@ impl StatusIndicator<'_> {
+         ));
+         lines.extend(hook_overflow);
+         lines.extend(row.wrapped_details_lines(width));
+-        lines
++        (lines, targets)
+     }
+ }
+ 
+@@ -303,6 +333,7 @@ impl Renderable for StatusIndicator<'_> {
+ 
+     fn render(&self, area: Rect, buf: &mut Buffer) {
+         if area.is_empty() {
++            self.row.shortcut_touch.borrow_mut().clear();
+             return;
+         }
+         if self.row.animations_enabled || self.timer.display_started_at.is_some() {
+@@ -317,7 +348,18 @@ impl Renderable for StatusIndicator<'_> {
+                 .frame_requester
+                 .schedule_frame_in(Duration::from_millis(interval_ms));
+         }
+-        Paragraph::new(Text::from(self.lines(area.width))).render(area, buf);
++        let (lines, mut targets) = self.layout(area.width);
++        for target in &mut targets {
++            for rect in &mut target.areas {
++                rect.x += area.x;
++                rect.y += area.y;
++            }
++        }
++        self.row
++            .shortcut_touch
++            .borrow_mut()
++            .set_layout(area, targets);
++        Paragraph::new(Text::from(lines)).render(area, buf);
+     }
+ }
+ 
+@@ -587,3 +629,7 @@ mod tests {
+ #[cfg(test)]
+ #[path = "status_indicator_widget/effects_tests.rs"]
+ mod effects_tests;
++
++#[cfg(test)]
++#[path = "status_indicator_widget/touch_tests.rs"]
++mod touch_tests;
+diff --git a/codex-rs/tui/src/status_indicator_widget/touch_tests.rs b/codex-rs/tui/src/status_indicator_widget/touch_tests.rs
+new file mode 100644
+index 0000000..eeff671
+--- /dev/null
++++ b/codex-rs/tui/src/status_indicator_widget/touch_tests.rs
+@@ -0,0 +1,113 @@
++use super::*;
++use crate::shortcut_touch::Outcome;
++use crossterm::event::KeyModifiers;
++use crossterm::event::MouseButton;
++use crossterm::event::MouseEvent;
++use crossterm::event::MouseEventKind;
++use tokio::sync::mpsc::unbounded_channel;
++
++fn fixture() -> StatusIndicatorWidget {
++    let (tx, _) = unbounded_channel();
++    let row = StatusIndicatorWidget::new(
++        AppEventSender::new(tx),
++        FrameRequester::test_dummy(),
++        false,
++        Default::default(),
++    );
++    row.shortcut_touch.borrow_mut().enabled = true;
++    row
++}
++
++fn draw(row: &StatusIndicatorWidget, width: u16) -> Buffer {
++    let area = Rect::new(3, 2, width, 4);
++    let mut buf = Buffer::empty(area);
++    row.with_timer(&StatusTimer::default())
++        .render(area, &mut buf);
++    buf
++}
++
++fn event(kind: MouseEventKind, buf: &Buffer) -> MouseEvent {
++    let x = (buf.area.x..buf.area.right())
++        .find(|&x| {
++            (x..buf.area.right())
++                .map(|x| buf[(x, 2)].symbol())
++                .collect::<String>()
++                .starts_with("to interrupt")
++        })
++        .unwrap();
++    MouseEvent {
++        kind,
++        column: x,
++        row: 2,
++        modifiers: KeyModifiers::NONE,
++    }
++}
++
++#[test]
++fn shortcut_interrupt_returns_runtime_binding_once() {
++    let mut row = fixture();
++    let hint = ShortcutHint::Chord {
++        prefix: key_hint::ctrl(KeyCode::Char('x')),
++        completion: key_hint::plain(KeyCode::Char('i')),
++    };
++    row.set_interrupt_binding(Some(hint));
++    row.update_header("正在工作".into());
++    let buf = draw(&row, 80);
++    assert_eq!(
++        row.shortcut_touch
++            .borrow_mut()
++            .handle(event(MouseEventKind::Down(MouseButton::Left), &buf)),
++        Outcome::Consumed
++    );
++    draw(&row, 80); // Same-layout timer/animation repaint must preserve a stationary tap.
++    let up = event(MouseEventKind::Up(MouseButton::Left), &buf);
++    assert_eq!(
++        row.shortcut_touch.borrow_mut().handle(up),
++        Outcome::Activate(Action::Keys(hint))
++    );
++    assert_eq!(row.shortcut_touch.borrow_mut().handle(up), Outcome::Ignored);
++}
++
++#[test]
++fn shortcut_interrupt_hidden_clipped_changed_and_dragged_never_activate() {
++    for change in 0..5 {
++        let mut row = fixture();
++        let buf = draw(&row, 80);
++        row.shortcut_touch
++            .borrow_mut()
++            .handle(event(MouseEventKind::Down(MouseButton::Left), &buf));
++        match change {
++            0 => row.set_interrupt_hint_visible(false),
++            1 => row.set_interrupt_binding(None),
++            2 => {
++                draw(&row, 20);
++            }
++            3 => {
++                row.shortcut_touch
++                    .borrow_mut()
++                    .handle(event(MouseEventKind::Drag(MouseButton::Left), &buf));
++            }
++            _ => {
++                row.update_header("Changed header".into());
++                draw(&row, 80);
++            }
++        }
++        assert_eq!(
++            row.shortcut_touch
++                .borrow_mut()
++                .handle(event(MouseEventKind::Up(MouseButton::Left), &buf)),
++            Outcome::Consumed
++        );
++    }
++    let row = fixture();
++    draw(&row, 20);
++    assert!(!row.shortcut_touch.borrow().active());
++}
++
++#[test]
++fn shortcut_interrupt_long_header_cannot_wrap_hit_coordinates() {
++    let mut row = fixture();
++    row.update_header("x".repeat(65536));
++    draw(&row, 80);
++    assert!(!row.shortcut_touch.borrow().active());
 +}
