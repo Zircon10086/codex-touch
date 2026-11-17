@@ -1,35 +1,37 @@
-# 变更记录
+[English](CHANGELOG.md) | [简体中文](CHANGELOG.zh-CN.md)
+
+# Changelog
 
 ## [Unreleased]
 
-- 当前项目自有代码、脚本和文档统一采用 Apache-2.0，与固定版本的上游 Codex 相同；增加根目录 NOTICE，保留上游与第三方声明及历史 MIT 许可记录。
-- 整理公开 README、通用 Debian ARM64 手机构建指南和贡献说明；增加只运行基础检查的 GitHub Actions。源码公开与后续版本标签、GitHub Release 分开处理。
+No unreleased changes.
 
-- 补齐 Agent command center 的任务行、状态筛选、分组、底部提示与帮助动作点击；任务刷新用稳定 ID 校验，顶层弹窗独立接收手势。
-- 工作中完整显示的 `esc to interrupt` 提示可点击，沿用运行时中断绑定与原业务流程；拖动、裁剪、隐藏和布局变化取消激活。
-- 默认构建/启动包改为 `touch-agents-0.169.0`，保留旧包；409 项 Rust 回归与包括中心操作、持续运行回合中断的真实程序 PTY 验收通过。
-- 记录用户“大部分触摸测试通过”的反馈；补齐后，用户明确确认 Agent command center 与工作中断提示触摸测试通过。
+## [0.2.0] - 2026-11-17
 
-- 主输入区快捷键提示和 `?` 帮助中的独立动作可点击，支持模式切换、换行、推理强度、发送/排队、记录页等操作，并遵循运行时单键或两段绑定。
-- 触摸版有草稿时保留帮助和换行入口；完整可见条目按实际列布局与换行命中，拖动、布局/焦点变化和其他输入取消点按。
-- 上一轮快捷键包 `touch-shortcuts-0.169.0` 保留；当时 376 项 Rust 回归及包含多行消息投递的真实程序 PTY 验收通过。
-
-- 新增显式启用的异步问答触摸补丁：摘要展开、命名选项点答、Other/自由编辑、底部操作提示点按与滚轮浏览。
-- 点击依照实际绘制区域命中，裁剪选项不可提交；拖动、换题、尺寸/焦点变化和弹层覆盖取消旧点按，发送与排队复用上游逻辑。
-- 增加独立构建/启动入口、补丁精确验证；手机本地构建、168 项 Rust 回归及合成 SGR 鼠标集成验收通过。普通同步问答和 Android 自动弹键盘留待后续阶段。
-- 记录用户真机验收：主要点答、编辑、跳过和草稿路径可用；保留换行入口、跨题导航验收及多题卡住的待办，并说明开发版默认共用日用会话记录。
-
-- 增加 Codex 0.169.0 固定源码清单和 Debian ARM64 本地基线构建入口，复用上游打包流程并锁定 Cargo 依赖。
-- 为该发布标签的本地包版本与锁文件不一致提供确定性修正，并验证第三方依赖不会被更新。
-- 完成手机基线构建与隔离验收，记录资源实测；统一检查新增可选的程序包、回环工具调用及默认后台 TUI 验收。
-- 记录 Codex 0.169.0 问答点按与输入框的对照实验、Google Play 版 Termux 的键盘行为及适配方案。
-- 新增独立软键盘诊断探针和合成 PTY 检查。
+- Publish the first functional release as source with SHA-256 checksums. Build the client against the pinned upstream version; no prebuilt binary is included.
+- Make English the default for documentation, README, project conventions, and release notes. Retain Chinese translations and add reciprocal language links to every document.
+- License current project code, scripts, and documentation under Apache-2.0, matching pinned upstream Codex. Add root NOTICE while retaining upstream, third-party, and historical MIT notices.
+- Provide a public README, a general Debian ARM64 phone build guide, contribution instructions, and GitHub Actions for basic repository checks.
+- Add agent command center touch controls for task selection/opening, status filters, grouping, footer hints, and help actions. Use stable task IDs across refreshes and route gestures to the active view.
+- Make the fully visible `esc to interrupt` hint tappable through the configured interrupt binding and original application flow. Dragging, clipping, hiding, and layout changes cancel activation.
+- Default to the `touch-agents-0.169.0` build package while retaining earlier packages. Pass 409 distinct Rust regressions and actual-program PTY validation, including command center controls and interruption of a held model turn.
+- Record on-device confirmation of the command center and interrupt fixes after the earlier report that most touch tests passed.
+- Make main-composer hints and individual `?` help actions tappable, including mode, newline, reasoning effort, sending/queueing, and transcript actions. Respect runtime single-key and two-key bindings.
+- Keep help and newline available with a draft. Use actual columns and wrapping to register fully visible entries; cancel taps on drag, layout/focus changes, or other input. The preceding shortcut package passed 376 distinct Rust regressions and multiline-delivery PTY checks.
+- Add opt-in asynchronous question touch controls: expand the summary, choose named answers, edit Other/freeform text, tap footer actions, and scroll choices.
+- Require fully visible answer targets. Cancel old gestures on drag, question changes, resizing, focus changes, or modal coverage, while retaining upstream sending and queueing behavior.
+- Add independent build/launch tools and exact patch verification. Phase one passed 168 distinct Rust regressions and SGR mouse integration checks; synchronous questions and automatic Android keyboard display remain future work.
+- Record on-device answer, editing, skip, and draft acceptance. Track newline/navigation follow-up and a reported multi-question stall. Explain that the adapted client shares regular sessions by default.
+- Pin Codex 0.169.0 and provide Debian ARM64 baseline builds using upstream packaging and locked Cargo dependencies.
+- Normalize the release tag's local-package lockfile versions deterministically without changing third-party dependency versions or checksums.
+- Validate the baseline on a phone, record resource measurements, and add optional package, loopback tool-call, and default-daemon TUI checks.
+- Document the original Codex question/composer behavior, Google Play Termux keyboard routing, and adaptation options. Add an independent keyboard probe and synthetic PTY checks.
 
 ## [0.1.0] - 2026-11-16
 
-- 建立独立 Git 仓库与开发目录。
-- 添加 MIT 许可证、编辑器配置和 Git 忽略规则。
-- 添加统一基础检查入口、设计说明和开发指南。
-- 建立 `VERSION`、变更记录与 `vX.Y.Z` 标签约定。
+- Initialize the independent Git repository and development scaffold.
+- Add the MIT license, editor configuration, and Git ignore rules.
+- Add basic checks, design notes, and a development guide.
+- Establish `VERSION`, the changelog, and the `vX.Y.Z` tag convention.
 
-本版本仅为开发框架基线，尚无可用的触摸功能。
+This historical version contains only the scaffold, with no functional touch adaptation.

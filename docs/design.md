@@ -1,36 +1,38 @@
-# 设计起点
+[English](design.md) | [简体中文](design.zh-CN.md)
 
-## 目标与当前范围
+# Design
 
-让用户在 Termux 中使用 Codex 时可以点开问题、点选答案，以及通过点击可编辑区域调出 Android 软键盘，并保留原有的键盘和滚动交互。
+## Goal and current scope
 
-0.1.0 仅建立开发框架。首次调查见[输入链路与实测](termux-touch.md)。第一阶段在固定上游版本上添加异步问答触摸补丁，使用独立包和显式开关；实现及验收边界见[第一阶段](phase1.md)。
+Make Codex usable by touch in Termux: open questions, choose answers, and eventually show the Android keyboard when an editable area is tapped, while preserving keyboard and scroll behavior.
 
-## 本轮设计决定
+Version 0.1.0 established the scaffold. The [initial investigation](termux-touch.md) describes the input path. Phase one added opt-in asynchronous question controls against a pinned upstream version; see its [implementation and acceptance record](phase1.md). Version 0.2.0 includes those controls and the later shortcut, command center, and interrupt work. Automatic keyboard display remains unimplemented.
 
-1. 首个功能放在 Codex 的 Rust TUI：按真实渲染区域分派点击，先做异步问答，再覆盖普通问答弹层；不重写鼠标协议。
-2. 软键盘单独验证。先用独立探针比较原版 Termux 的单击行为，再判断是否有必要开发 Termux 端的会话级显示请求。
-3. 真机的触摸、窗口尺寸和退出恢复按独立步骤验收；合成 PTY 只能验证它负责的那一段。
+## Implementation decisions
 
-开发设备的 `termux-run` 桥用于非交互工具调用，没有 PTY；不能把通过它运行命令视为交互终端验证。
+1. Implement controls in the Codex Rust TUI, dispatching against rendered areas. Start with asynchronous questions; adapt synchronous question dialogs separately. Reuse the mouse protocol.
+2. Investigate the keyboard independently. Compare stock Termux tap behavior before deciding whether Termux needs a session-level display request.
+3. Validate actual touch, window changes, and terminal restoration separately. A synthetic PTY proves only the portion it exercises.
 
-## 首个功能的验收要求
+The development device's `termux-run` bridge executes noninteractive commands and has no PTY. Running a command through it is not an interactive-terminal test.
 
-- 将触摸动作与预期结果写成可复现步骤。
-- 键盘输入、终端尺寸变化、正常退出和中断行为有明确验证记录。
-- 若组件改变终端模式，退出或异常时能够恢复。
-- 涉及输入转换时，用合成事件覆盖正常、边界和无效输入。
-- 自动化检查与需要手机交互的人工验收分别记录，尚未执行的验收明确标注。
+## Acceptance requirements
 
-两类问答的验收和键盘对照步骤随[调查记录](termux-touch.md)维护。
+- Describe gestures and expected results as reproducible steps.
+- Record keyboard, terminal-resize, normal-exit, and interruption checks.
+- Restore terminal modes after normal or abnormal exit if a component changes them.
+- Cover normal, boundary, and invalid inputs with synthetic events when converting input.
+- Keep automated checks separate from phone interaction acceptance, and identify unperformed checks.
 
-## 快捷键提示点击
+Question and keyboard comparison procedures are maintained in the [investigation](termux-touch.md).
 
-- 提示生成时保留运行时快捷键与语义，列布局、自动换行和绘制共同产出命中区域，不扫描文案反推按键。
-- 主输入区和 `?` 帮助使用独立的短点按捕获；完整条目可点击，裁剪、布局变化、拖动、键盘输入与失焦取消激活。弹层、后台窗格和交互式记录页不接收底层提示点按；command center 作为独立顶层视图拥有自己的点击区域。
-- 帮助打开和关闭是输入框本地动作，保留草稿；其他动作回到完整应用按键路由，支持运行时单键及两段快捷键，并保留原版权限和状态约束。
-- 触摸开关下，有草稿时保留帮助和换行入口，空闲主输入区增加模式切换提示。使用已有布局优先级处理窄屏，不引入新的 UI 框架或依赖。
-- 当前覆盖与验证见[快捷键提示点击](shortcut-touch.md)。
+## Shortcut hints and view ownership
 
-- command center 从实际任务行、状态标签和带语义的帮助布局收集目标；任务 ID 与选中状态共同参与手势校验，刷新保持同一布局时允许完成点按，重排或覆盖取消。底部视图接口仅增加默认无操作的触摸入口，其他弹窗不会获得底层点击。
-- 工作状态组件随绘制登记完整的中断提示区域；计时器引起的坐标变化取消旧手势。中断、打开任务和帮助动作返回原有运行时按键路由，保留状态约束与确认流程。
+- Preserve runtime bindings and semantics when constructing hints. Column layout, wrapping, and rendering produce hit regions together; do not parse displayed labels back into keys.
+- The main composer and `?` help capture short taps independently. Only fully visible entries activate. Clipping, layout changes, dragging, keyboard input, and focus loss cancel the gesture. Modals, background panes, and interactive transcripts do not receive underlying hint taps; the command center owns its own targets as the active view.
+- Opening and closing help are local composer actions that preserve the draft. Other actions return through the full application key route, including runtime single-key and two-key bindings and existing permission/state constraints.
+- With touch enabled, retain help and newline hints with a draft, and expose a mode hint while idle. Use existing narrow-screen layout priorities without adding a UI framework or dependency.
+- The command center collects targets from painted task rows, status tabs, and semantic help layout. Task ID and selection state participate in gesture validation. A refresh with the same layout preserves a tap; reordering or coverage cancels it. The bottom-pane interface adds default no-op touch methods, so unrelated modals cannot receive underlying clicks.
+- The working-status component registers the fully rendered interrupt hint. Coordinate changes caused by the timer cancel old gestures. Interruption, opening tasks, and help actions use the original runtime key route and retain confirmation/state rules.
+
+See [shortcut controls](shortcut-touch.md) for coverage and verification.

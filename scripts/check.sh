@@ -44,7 +44,7 @@ for path in README.md LICENSE NOTICE VERSION CHANGELOG.md AGENTS.md CONTRIBUTING
     tests/baseline_smoke.py docs/baseline-build.md scripts/build-touch.sh \
     scripts/prepare-touch.py scripts/run-touch.sh scripts/test-touch.sh tests/touch_pty.py \
     src/async-question-touch.patch src/LICENSE.upstream src/NOTICE.upstream docs/phase1.md docs/shortcut-touch.md tests/test_prepare_touch.py \
-    .github/workflows/check.yml; do
+    .github/workflows/check.yml scripts/check-docs.py; do
     [[ -s "$path" ]] || fail "Missing or empty file: $path"
 done
 
@@ -61,6 +61,8 @@ grep -Fq "## [$version] - " CHANGELOG.md \
     || fail 'CHANGELOG.md has no entry for VERSION.'
 grep -Fq "**$version**" README.md \
     || fail 'README.md does not show the current VERSION.'
+
+python3 -B scripts/check-docs.py
 
 bash -n scripts/check.sh
 bash -n scripts/probe-termux-ime.sh

@@ -1,23 +1,29 @@
-# 参与开发
+[English](CONTRIBUTING.md) | [简体中文](CONTRIBUTING.zh-CN.md)
 
-欢迎提交可复现的问题报告和范围明确的改动。项目通过固定上游源码补丁适配 Codex TUI，优先复用上游事件、快捷键及业务流程；不为尚未实现的能力预建框架或新增依赖。
+# Contributing
 
-## 报告问题
+Reproducible reports and focused changes are welcome. codex-touch adapts the Codex TUI through a patch against a pinned upstream revision. Prefer existing upstream events, shortcuts, and business logic. Avoid speculative frameworks and dependencies.
 
-请提供 Codex 基线与 codex-touch 提交、Termux 版本及发行渠道、Linux 用户环境、终端大致尺寸，以及复现步骤、预期和实际结果。触摸问题请说明是点击、拖动还是滚动，以及键盘是否显示。使用合成问题或最小示例，避免上传会话原文、凭据和个人信息。
+## Reporting a problem
 
-## 修改与检查
+Include the Codex baseline and codex-touch commit, Termux version and distribution channel, Linux userspace, approximate terminal dimensions, reproduction steps, expected behavior, and actual behavior. For touch problems, distinguish tapping, dragging, and scrolling, and mention whether the keyboard is visible. Use synthetic questions or a minimal example; do not upload session transcripts, credentials, or personal information.
 
-1. 阅读 [AGENTS.md](AGENTS.md)、[设计说明](docs/design.md)和[手机构建指南](docs/build.md)，从 `main` 创建功能分支。
-2. 修改固定版本的上游源码，保留现有行为、许可声明和确认流程；按实际绘制区域定位点击目标。
-3. 将源码差异更新到 `src/async-question-touch.patch`，新增上游测试文件也须包含在补丁中。不要将构建缓存、程序包或本地配置加入仓库。
-4. 运行 `bash scripts/check.sh`。涉及补丁时再核对源码并运行相关 Rust 回归；涉及实际输入路由时运行程序包 PTY 检查。入口见[测试说明](tests/README.md)。
-5. 更新 `CHANGELOG.md` 的 `Unreleased` 和相关行为文档；在 PR 中写明问题、改动、检查结果及未验证范围。
+## Making a change
 
-项目保留 LF 行尾。脚本统一通过 `bash` 或 `python3` 调用，不依赖 Android 共享存储的可执行位。不会因每个开发提交自动更新版本号、打标签或发布 Release。
+1. Read [AGENTS.md](AGENTS.md), the [design](docs/design.md), and the [phone build guide](docs/build.md). Create a branch from `main`.
+2. Edit the pinned upstream source while preserving existing behavior, license notices, and confirmation flows. Derive hit targets from actual rendering.
+3. Update `src/async-question-touch.patch`, including any new upstream test files. Keep caches, binaries, and local configuration out of the repository.
+4. Run `bash scripts/check.sh`. For patch changes, also verify the exact source and run the relevant Rust regressions. For input-routing changes, run the package PTY checks. See [tests](tests/README.md).
+5. Update `Unreleased` in `CHANGELOG.md` and the relevant behavior documentation. Describe the problem, change, validation, and unverified scope in the PR.
 
-GitHub Actions 在推送和 PR 上运行基础检查，权限为只读；它不编译完整 Codex，也不代表 Android 真机验收。完整构建仍可全部在手机进行。
+Use LF line endings. Invoke scripts with `bash` or `python3`; Android shared storage may not preserve executable permissions. An ordinary development commit does not automatically bump the version, create a tag, or publish a Release.
 
-## 许可
+GitHub Actions runs basic checks on pushes and PRs with read-only permissions. It does not compile all of Codex or establish Android behavior. Full builds can still run entirely on a phone.
 
-提交新贡献表示同意以项目的 Apache-2.0 许可证提供该贡献。引用或修改第三方代码时保留来源、许可证与 NOTICE。历史版本的许可记录保留，第三方组件不因项目换证而改变许可。
+## Documentation language
+
+Use English for default documentation, code comments, script output, and release materials. Chinese translations use sibling `*.zh-CN.md` files. Put reciprocal language links at the top, and update both versions when behavior or version information changes. Preserve multilingual test inputs and character-width fixtures.
+
+## License
+
+New contributions are provided under the project's Apache-2.0 license. Retain provenance, licenses, and NOTICE files when incorporating third-party code. Historical license records remain intact; a project license change does not change third-party licenses.

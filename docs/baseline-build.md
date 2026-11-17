@@ -1,100 +1,90 @@
-# 手机本地基线构建
+[English](baseline-build.md) | [简体中文](baseline-build.zh-CN.md)
 
-先构建未经触摸修改的上游版本，用于验证构建环境和后续对照。
-[upstream.json](../upstream.json) 固定源码仓库、标签、提交、工具链、目标和构建配置。
+# On-device baseline build
 
-- Codex：`rust-v0.169.0`，提交 `d32063f96c2dff1dc96af839b3952abb6acfeda4`。
-- Rust：`1.95.0`，含 rustfmt、Clippy 和 rust-src。
-- 目标：`aarch64-unknown-linux-gnu`，运行于手机上的 Debian chroot。
-- 配置：上游的 `dev-small`，默认 1 个编译任务，使用 LLD，Cargo 依赖采用 `--locked`。
+Build the unmodified upstream client to verify the environment and provide a comparison. [upstream.json](../upstream.json) pins the repository, tag, commit, toolchain, target, and profile.
 
-## 构建依赖
+- Codex: `rust-v0.169.0`, commit `d32063f96c2dff1dc96af839b3952abb6acfeda4`.
+- Rust: `1.95.0`, with rustfmt, Clippy, and rust-src.
+- Target: `aarch64-unknown-linux-gnu`, running in Debian chroot on the phone.
+- Profile: upstream `dev-small`, one build job by default, LLD, and `--locked` Cargo dependencies.
 
-Debian 包：`build-essential cmake pkg-config libssl-dev libcap-dev lld git`。
-Python 3.11+ 和 HTTPS 根证书同样需要可用。Rust 通过 rustup 安装上述固定版本。
-这里需要直接访问 guest 源码目录的 Git，以及针对 glibc 的 C/C++ 编译器。
+## Dependencies
 
-无需预先安装 just 或 Android SDK。其他依赖以固定源码实际构建结果为准。
-原版 Termux 的 Android/Bionic 编译器不直接用于这个 Linux 构建。
+Debian packages: `build-essential cmake pkg-config libssl-dev libcap-dev lld git`. Python 3.11+ and HTTPS root certificates must also be available. Install the pinned Rust toolchain through rustup. Git must access the guest source directly, and the C/C++ compiler must target glibc.
 
-## 使用
+Neither just nor the Android SDK is required beforehand. Other dependencies follow the pinned source's build requirements. Native Termux's Android/Bionic compiler is not used for this Linux build.
 
-在 Debian chroot 的项目目录执行：
+## Usage
+
+Inside the project directory in Debian chroot:
 
 ```sh
 bash scripts/build-baseline.sh
 ```
 
-默认工作目录为 `~/codex-touch-build`，包含：
+The default workspace is `~/codex-touch-build`:
 
 ```text
-upstream/                       固定源码，仅规范化发布锁文件的本地版本
-target/                         Cargo 编译与增量缓存
-downloads/                      上游打包工具下载的 V8、ripgrep 等依赖
-logs/                           构建日志
-packages/baseline-0.169.0/       完整的基线程序包
+upstream/                 Pinned source with local lockfile versions normalized
+target/                   Cargo build and incremental cache
+downloads/                V8, ripgrep, and other upstream packaging downloads
+logs/                     Build logs
+packages/baseline-0.169.0/ Complete baseline package
 ```
 
-Cargo 自身的下载缓存位于 `~/.cargo`。即便 V8 使用上游预编译库，Cargo 初次获取其 Git 依赖时仍会下载子模块，可能占用数 GiB。
+Cargo downloads also use `~/.cargo`. Even though V8 uses a prebuilt library, Cargo initially downloads Git submodules for its dependency, using several GiB.
 
-可用 `CODEX_TOUCH_BUILD_DIR` 指定其他 Linux 目录，用 `CODEX_TOUCH_JOBS` 调整编译并发。首次实机尝试在充电期间以 2 任务构建，电池温度升到 46.8°C，因此项目默认改为 1；这个设置独立于用户全局 Cargo 的并发配置。
-源码与产物不要放在 Android 共享存储。首次构建会持续占用资源，应保持 Termux 活跃，按需持有唤醒锁，并留意温度及可用内存。
+Use `CODEX_TOUCH_BUILD_DIR` for another Linux directory and `CODEX_TOUCH_JOBS` to change concurrency. The first charging-phone attempt with two jobs reached a battery temperature of 46.8°C, so the project default became one job, independently of global Cargo settings. Keep sources and output off Android shared storage. Long initial builds require Termux to remain active, a wake lock if appropriate, and monitoring of temperature and memory.
 
-脚本拒绝不同提交、约定锁文件修正以外的本地修改以及已存在的输出包。依赖下载或编译失败时保留缓存，可以在排除故障后重新执行。成功后不会替换日用 Codex，也不会启动会话或读取日用配置。
+The script rejects a different source commit, changes beyond the known lockfile correction, and an existing output package. Download or compilation failures retain caches for retry after resolving the problem. A successful build does not replace regular Codex, start a session, or read regular configuration.
 
-## 发布标签的锁文件修正
+## Release-tag lockfile correction
 
-该标签的工作区版本为 `0.169.0`，但 `Cargo.lock` 中 173 个本地包仍标记为 `0.0.0`，直接使用 `--locked` 会失败。
-`scripts/prepare-lock.py` 只同步这些本地包版本，并核对修正前、后的完整 SHA-256；第三方依赖的版本、来源、校验值及依赖关系保持原样。
-实际编译仍使用 `--locked`。这项构建元数据修正不包含 Rust 功能代码改动。
+This upstream tag declares workspace version `0.169.0`, but 173 local packages in Cargo.lock still say `0.0.0`, making an unchanged `--locked` build fail. `scripts/prepare-lock.py` synchronizes only those local versions and verifies the full SHA-256 before and after. Third-party versions, sources, checksums, and dependency relationships remain unchanged. Compilation still uses `--locked`; this correction changes build metadata, not Rust behavior.
 
-## 构建边界
+## Build boundaries
 
-复用上游 `scripts/build_codex_package.py`，构建主程序、`codex-code-mode-host`、`codex-exec-server` 和 Linux `bwrap`，并按上游清单下载、校验 V8 与 ripgrep。包内包括 `codex-package.json`、`bin/`、`codex-path/` 和 `codex-resources/`。
+The build reuses upstream `scripts/build_codex_package.py` for the main client, `codex-code-mode-host`, `codex-exec-server`, and Linux `bwrap`, and downloads/verifies V8 and ripgrep against upstream manifests. The package includes `codex-package.json`, `bin/`, `codex-path/`, and `codex-resources/`.
 
-这里的“手机本地构建”指 Codex 及其自有辅助程序在手机上编译；第三方 V8 和 ripgrep 使用上游构建流程指定的预编译依赖。语音发行包和 Android APK 不属于本轮构建范围。
+“On-device build” means Codex and its own helpers compile on the phone. Third-party V8 and ripgrep use the prebuilt dependencies selected by upstream. Voice distribution packages and Android APKs are outside this build.
 
-源码和依赖的上游许可证继续适用。本仓库当前同样采用 Apache-2.0，第三方组件仍保留各自许可证。
+Upstream and dependency licenses still apply. This repository also uses Apache-2.0; third-party components retain their own licenses.
 
-## 验收状态
+## Validation record
 
-2026-11-16：基线构建和统一集成验收完成。程序包位于：
+2026-11-16: baseline compilation and integrated checks passed. The package is at `~/codex-touch-build/packages/baseline-0.169.0` on the development device.
 
-```text
-${HOME}/codex-touch-build/packages/baseline-0.169.0
-```
-
-无需加载日用配置的版本检查：
+Check its version without loading regular configuration:
 
 ```sh
 "$HOME/codex-touch-build/packages/baseline-0.169.0/bin/codex" --version
 ```
 
-集成验收命令：
+Run integrated checks:
 
 ```sh
 bash scripts/check.sh --baseline-package "$HOME/codex-touch-build/packages/baseline-0.169.0"
 ```
 
-通过范围：程序包布局与版本、辅助程序启动、app-server 初始化、回环假模型驱动的 V8 代码执行及 shell/ripgrep 调用，以及默认后台服务模式下 TUI 在合成 PTY 中显示最终回复并正常退出。测试使用临时 HOME/CODEX_HOME，退出后停止测试后台服务并清理临时文件。自动生成会话标题会多发一次模型请求，验收依据具体工具结果与聊天回复，不依赖总请求数。
+Passed: package layout/version, helper startup, app-server initialization, a local fake model driving V8 code execution and shell/ripgrep tools, and the default-daemon TUI rendering a complete tool turn in an isolated PTY before normal exit. Tests use temporary HOME/CODEX_HOME, stop their daemon, and clean temporary files. Automatic title generation adds a model request, so assertions use actual tool results and replies rather than request count alone.
 
-本轮没有修改触摸行为，也未进行真实 Android 键盘、手机点按、完整上游测试套件或 Linux 沙箱能力验收。
+This baseline run did not modify touch behavior or validate Android keyboard/taps, the entire upstream test suite, or Linux sandbox capabilities.
 
-### 本机实测资源
+### Measured resources
 
-从首次构建尝试到成功出包约 **42.5 分钟**，包含依赖下载、发布锁文件排查、一次中断以及降温；不是纯编译时间。最后一轮约 **25.8 分钟**，其中温度暂停约 **5.4 分钟**。最终一轮以 10 秒间隔采样的构建进程组 RSS 总和峰值约 **3.19 GiB**，包含共享内存重复计数，不等同于精确独占峰值。
+The initial attempt through successful packaging took about **42.5 minutes**, including downloads, lockfile debugging, an interruption, and cooling. The final build took about **25.8 minutes**, including **5.4 minutes** paused for cooling. The final sampled sum of process-group RSS peaked around **3.19 GiB**, sampled every 10 seconds. Shared pages may be counted more than once; this is not exact private memory usage.
 
-| 内容 | 分配空间 |
+| Component | Allocated space |
 | --- | ---: |
-| 上游源码及浅克隆 | 151.5 MiB |
-| Cargo 编译、增量缓存 | 12,611.3 MiB |
-| Cargo Git 依赖缓存 | 3,862.0 MiB |
-| Cargo registry 缓存 | 1,241.8 MiB |
-| 上游 V8/ripgrep 下载缓存 | 34.6 MiB |
-| 完整基线程序包 | 598.6 MiB |
-| 合计 | 约 18.1 GiB |
+| Upstream source and shallow clone | 151.5 MiB |
+| Cargo build and incremental cache | 12,611.3 MiB |
+| Cargo Git dependencies | 3,862.0 MiB |
+| Cargo registry | 1,241.8 MiB |
+| Upstream V8/ripgrep downloads | 34.6 MiB |
+| Complete baseline package | 598.6 MiB |
+| Total | About 18.1 GiB |
 
-以上不含此前安装的约 1.1 GiB 工具链和本轮新增的约 52 MiB Git 依赖。当前保留编译与下载缓存用于后续触摸开发。
+This excludes the previously installed toolchain (about 1.1 GiB) and approximately 52 MiB of newly installed Git dependencies. Caches were retained for touch development.
 
-上游 bubblewrap C 代码有两处 `sockaddr_nl` 字段未显式初始化警告，未导致构建失败；基线保留原代码。
-本机构建命令、日志、采样、各二进制校验值记录在 `~/codex-touch-build/baseline-build-record.json` 与 `logs/`。
+Two upstream bubblewrap C warnings concerned uninitialized `sockaddr_nl` fields and did not fail the build; baseline source was preserved. Commands, resource samples, and binary hashes are recorded locally in `~/codex-touch-build/baseline-build-record.json` and `logs/`.

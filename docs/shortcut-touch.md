@@ -1,82 +1,82 @@
-# 快捷键提示点击
+[English](shortcut-touch.md) | [简体中文](shortcut-touch.zh-CN.md)
 
-本轮基于同一 Codex 0.169.0 固定提交，沿用 `CODEX_TOUCH=1`，适用于默认全屏终端。功能在 `Unreleased`，版本号仍为框架基线 0.1.0。
+# Tappable shortcut hints
 
-## 使用方法
+These controls use the same pinned Codex 0.169.0 revision, `CODEX_TOUCH=1`, and the default full-screen terminal. They ship in codex-touch 0.2.0.
 
-准备步骤见[手机构建指南](build.md)。进入 Debian chroot 内的项目克隆目录后运行：
+## Usage
+
+Follow the [phone build guide](build.md), then run inside the cloned project in Debian chroot:
 
 ```sh
 bash scripts/run-touch.sh
 ```
 
-当前入口选择 `~/codex-touch-build/packages/touch-agents-0.169.0`。上一轮快捷键包和第一阶段包仍保留，可临时切回：
+The launcher selects `~/codex-touch-build/packages/touch-agents-0.169.0`. The development device retains earlier shortcut and phase-one packages. If you have the preceding shortcut package, select it temporarily with:
 
 ```sh
 CODEX_TOUCH_PACKAGE="$HOME/codex-touch-build/packages/touch-shortcuts-0.169.0" bash scripts/run-touch.sh
 ```
 
-启动器不修改 HOME/CODEX_HOME，默认仍共用日用 Codex 的配置和会话。重新构建用 `bash scripts/build-touch.sh`；已有输出不覆盖，需要通过 `CODEX_TOUCH_PACKAGE` 指定新的 Linux 目录。
+The launcher leaves HOME/CODEX_HOME unchanged and normally shares regular configuration and sessions. Rebuild with `bash scripts/build-touch.sh`; use `CODEX_TOUCH_PACKAGE` for a new Linux output directory because existing packages are never overwritten.
 
-## 点击覆盖
+## Coverage
 
-| 位置 | 支持行为 |
+| Surface | Supported behavior |
 | --- | --- |
-| 主输入区底部 | 点击快捷键或后面的说明文字打开帮助、进入 agents、排队；空闲时点击模式提示切换模式 |
-| 有草稿的主输入区 | 保留帮助和 `new line` 入口；换行插入到当前光标处，不提交草稿 |
-| `?` 快捷键帮助 | Commands、Mention files、Shell command、New line、Paste image、External editor、Search history、发送/排队、Change mode、推理强度、Voice、Agents、Inspect activity、Interrupt/Quit、Open transcript、Find text |
-| 帮助底部 `close` | 关闭帮助并保留草稿 |
-| Agent command center | 点击任务行选中，再点已选中的任务行打开；点击状态标签筛选、分组提示切换分组、底部提示和帮助条目执行动作；列表滚轮移动选择 |
-| 工作状态 `esc to interrupt` | 点击完整显示的快捷键或 `to interrupt` 文字，执行当前绑定的原版中断流程 |
-| 异步问答底部 | 沿用第一阶段的 submit、skip、main prompt、prev question、next question 等单键提示点按，包含 Shift 组合键 |
+| Main composer footer | Tap the binding or description to open help, enter agents, or queue; tap the idle mode hint to change mode |
+| Composer with a draft | Keep help and `new line` available; insert a newline at the cursor without submitting |
+| `?` shortcut help | Commands, Mention files, Shell command, New line, Paste image, External editor, Search history, send/queue, Change mode, reasoning effort, Voice, Agents, Inspect activity, Interrupt/Quit, Open transcript, Find text |
+| Help footer `close` | Close help and preserve the draft |
+| Agent command center | Tap a task to select, then tap the selected task to open; tap status tabs, grouping, footer hints, and help actions; wheel events move selection |
+| Working `esc to interrupt` | Tap the complete binding or `to interrupt` text to use the configured upstream interruption flow |
+| Asynchronous question footer | Retain phase-one single-key submit, skip, main prompt, previous/next hints, including Shift combinations |
 
-command center 的任务目标使用稳定的会话 ID；后台刷新不能把旧点按重定向到另一任务。改名期间关闭任务行与筛选点击，避免把名字应用到错误任务。窄屏筛选栏的左右箭头可进入隐藏的筛选页。帮助中的合并方向键各自可点，说明文字对应最后一个方向；删除、归档继续进入原有确认流程。
+Command center targets use stable thread IDs. A background refresh cannot redirect an old tap to another task. Task-row and filter clicks are disabled during rename to avoid renaming the wrong task. Narrow tab-strip arrows reach hidden filters. In combined direction hints, each key is independently tappable and the description belongs to the last direction. Delete/archive keep upstream confirmation flows.
 
-默认全屏模式下，Open transcript 展开当前记录详情，输入框仍然保留；Find text 则进入记录搜索。
+In full-screen mode, Open transcript expands current transcript details while retaining the composer; Find text opens transcript search.
 
-以上是提示可见且对应绑定未禁用时的覆盖，原版对运行状态、权限、外部编辑器和剪贴板可用性的约束继续生效。`?` 键原有语义不变；只有点击帮助入口能在已有草稿时直接打开帮助。
+Coverage applies only when hints are visible and their bindings are enabled. Upstream constraints for state, permissions, external editors, and clipboard availability still apply. The physical `?` key keeps its original meaning; tapping help can open it with a draft.
 
-帮助中的双 Esc、合并的 Subagents/Scroll/Top-latest、只能在记录页内使用的选择提示，以及 `/keymap customize` 仍是参考文字。浮动 leader/preset 菜单、其他弹窗和记录页自身的提示未在本轮适配。普通问答弹层、异步回答编辑器内的新增换行入口、Android 自动弹键盘仍待后续开发。
+Double-Esc, combined Subagents/Scroll/Top-latest references, transcript-only selection hints, and `/keymap customize` remain reference text. Floating leader/preset menus, unrelated dialogs, and transcript-owned hints are not adapted. Synchronous question dialogs, a new newline affordance inside the asynchronous answer editor, and automatic Android keyboard display remain future work.
 
-## 命中与事件处理
+## Hit testing and dispatch
 
-- 使用绘制时保留的语义和真实区域。帮助复用原版的一至三列布局及自动换行，并按源文字范围映射命中区域；整条被高度裁剪时不注册点击。
-- 按下和松开必须属于同一条提示，期间布局与动作不变。拖动、离开目标、滚轮、修饰键、其他输入、缩放和失焦取消激活；取消后的松手仍被捕获，避免穿透。
-- 提示点击优先于底部静态文字选择；从提示开始拖动不会选择文字或触发操作。非提示区域保留原版处理。
-- 帮助打开和关闭由输入框处理；其他点击回到应用原按键链路，包含按下与松开，以及运行时两段快捷键。Shift+Tab 按终端约定生成 BackTab。
-- 帮助执行动作后关闭，发送、换行等走原版路径；不向输入框插入快捷键名称，也不通过模拟 Escape 关闭帮助，以免触发会话回退。
+- Use semantics and actual painted regions. Help retains upstream one-/two-/three-column layouts and word wrapping, mapping source ranges to hit regions. Height-clipped entries are not registered.
+- Press and release must hit the same entry with unchanged layout/action. Dragging, leaving the target, wheel input, modifiers, other input, resizing, and focus loss cancel activation. A cancelled gesture remains captured through release to avoid falling through.
+- Hint taps run before static text selection. Dragging from a hint does not select text or execute the action. Other areas retain upstream behavior.
+- The composer handles help open/close locally. Other actions return through application key routing, emitting press/release and supporting runtime two-key bindings. Shift+Tab generates terminal-style BackTab.
+- Executing a help action dismisses help directly and uses the original action path. It neither inserts key-label text nor simulates Escape to close help, which could backtrack the session.
 
-## 验证
-
-统一入口：
+## Validation
 
 ```sh
 bash scripts/check.sh --upstream-source "$HOME/codex-touch-build/upstream" --rust-tests
 bash scripts/check.sh --touch-package "$HOME/codex-touch-build/packages/touch-agents-0.169.0"
 ```
 
-Rust 检查包含第一阶段范围，并增加提示手势、帮助列布局/换行/裁剪、草稿换行/帮助关闭、弹层背景与非焦点区域测试。集成测试使用隔离 HOME/CODEX_HOME、本机假模型和合成 PTY，验证实际 SGR 鼠标经过完整程序后产生的动作与模型请求。
+Rust checks retain phase-one coverage and add gestures, help columns/wrapping/clipping, draft newline/help-close behavior, and hidden/unfocused owners. Integration checks use temporary HOME/CODEX_HOME, a local fake model, and a synthetic PTY to verify actual SGR mouse routing through the program and resulting model requests.
 
-上一轮快捷键版（2026-11-17）：376 项去重后的 Rust 测试通过，包含 10 项新增提示点击测试。六个筛选范围分别为 questions 75、selection_popup_common 10、request_user_input 90、shortcut 117、footer 91、live_center 12；范围有交集，未运行整个上游套件。
+The preceding shortcut build on 2026-11-17 passed **376 distinct Rust tests**, including 10 new hint tests. Filter counts were questions 75, selection_popup_common 10, request_user_input 90, shortcut 117, footer 91, and live_center 12. Filters overlap; the full upstream suite was not run.
 
-实际程序 PTY 已通过：原有问答点答与 Shift 前后题导航；拖动模式提示不激活；42 列下换行；带草稿打开帮助和关闭；模式双向切换；自定义 Shift+Up 推理强度；帮助内 Shift+Enter 换行；自定义两段快捷键打开记录搜索；点击发送后实际模型请求包含精确的三行文本及 high 推理强度；退出后终端属性与鼠标上报恢复。
+Actual-program PTY checks passed question answers and Shift previous/next navigation; mode-drag cancellation; newline at 42 columns; help open/close with a draft; mode changes in both directions; custom Shift+Up reasoning; help Shift+Enter newline; a custom two-key transcript search; exact three-line delivery with high reasoning effort; and terminal/mouse-reporting restoration on exit.
 
-应用级 Rust 测试采用上游 CI 的 `RUST_MIN_STACK=8388608`。一个原有界面快照仍写 `v0.0.0`；验证差异只有两处版本标签后，已更新为固定发布版本 `v0.169.0`。PTY 首次安装隔离后台服务包实测约 40–50 秒，因此启动等待改为 120 秒；界面操作的等待仍为 30 秒，开始空闲操作前排空问答回复，点击提示前等待其位置稳定 250 毫秒，不自动重试点击。
+Application tests use upstream CI's `RUST_MIN_STACK=8388608`. One old snapshot still contained `v0.0.0`; its only two differences were version labels, updated to pinned `v0.169.0`. Initial isolated daemon installation took about 40–50 seconds, so startup waits allow 120 seconds while ordinary actions allow 30. Tests drain queued answers before idle interactions and wait for a hint's position to stabilize for 250 milliseconds, without retrying failed taps.
 
-手机本地程序包约 599 MiB，该轮首次出包耗时 145.6 秒；只修正快照后重打包 6.2 秒，五个二进制校验值相同。构建记录在 `~/codex-touch-build/shortcut-build-record.json`。该轮 TUI 测试编译采样进程组 RSS 峰值约 7.07 GiB；单 Cargo 任务，未触发温控暂停。
+That shortcut package was about 599 MiB and initially took 145.6 seconds to build. Repackaging after the snapshot correction took 6.2 seconds with identical hashes for five binaries. The record is `~/codex-touch-build/shortcut-build-record.json`. Test compilation's sampled process-group RSS peaked around 7.07 GiB with one Cargo job and no thermal pause.
 
-用户随后反馈大部分触摸测试已通过，同时指出 command center 和中断提示无法点击；这是概括性反馈，不代表上一轮每个条目均已真机验收。在补齐后，用户已明确反馈 Agent command center 与工作中断提示触摸测试通过；这不扩展为对所有细分动作或输入法的验收。PTY 的验证范围仍单独记录。
+The user later reported that most touch tests passed, identifying the command center and interrupt hint as gaps. This was a general report, not acceptance of every individual shortcut. After those fixes, the user explicitly confirmed both areas passed on-device testing. This does not establish every sub-action or keyboard behavior; PTY evidence remains separate.
 
-建议真机按顺序确认：点击底部模式提示；输入两行中文（第二行用 `new line` 插入）；有草稿时点击帮助、再点 New line/Change mode/close；在多题问答中点 next question 与 prev question。缩窄窗口或折叠屏幕后再次操作，确认拖动提示不触发。
+Suggested checks for other devices: tap mode; type two Chinese lines using `new line`; open help with a draft and use New line/Change mode/close; navigate multiple questions; then repeat after narrowing or folding the screen. Confirm that dragging a hint does not activate it.
 
-## command center 与中断提示补齐
+## Command center and interrupt completion
 
-2026-11-17：增加独立视图的触摸路由，只让最上层组件接收点击；打开其他弹层时取消底层手势。状态组件自行登记完整中断提示区域，隐藏、截断、绑定或布局改变均取消旧点击。共享的帮助布局与手势代码继续复用，无新增依赖。
+On 2026-11-17, independent view routing was added so only the top component accepts taps. Opening another view cancels underlying gestures. The status component owns complete interrupt regions; hiding, clipping, binding changes, and layout changes invalidate old taps. Shared gesture/help layout code is reused without new dependencies.
 
-可复现的真机检查步骤：打开 agents，点任务行选中并再次打开；点 Working/Ready 等标签和窄屏箭头；点 `? help` 后执行 Search、Rename、Group 等动作，点 back 分别退出帮助与中心。运行一个可中断任务，先拖动 `esc to interrupt` 确认不中断，再轻点文字确认停止。
+Reproduction steps: open agents, select and reopen a task; tap Working/Ready tabs and narrow-screen arrows; open `? help`, execute Search/Rename/Group, and use back to leave help and then the center. During an interruptible task, drag `esc to interrupt` to confirm it continues, then tap the text to stop it.
 
-本轮验收通过：409 项去重 Rust 测试（7 项新增），七个筛选范围为 questions 75、selection_popup_common 10、request_user_input 90、shortcut 121、footer 91、live_center 16、status_indicator 29，范围有交集。原有状态动效快照保持不变；未运行整个上游套件。
+The final regression run passed **409 distinct Rust tests**, including 7 new tests. Filter counts: questions 75, selection_popup_common 10, request_user_input 90, shortcut 121, footer 91, live_center 16, status_indicator 29. Counts overlap. Existing status-effect snapshots stayed unchanged; the full upstream suite was not run.
 
-统一检查还通过程序包配套工具、V8/shell/rg 完整回合、默认 daemon TUI，以及扩展的触摸 PTY。新增 PTY 实测了 command center 状态筛选、帮助、运行时两段 Search 快捷键、分层返回、点击打开，以及假模型回合持续运行时“拖动不中断、点击中断”和退出恢复。整个测试使用临时 HOME/CODEX_HOME 与回环服务。
+Unified checks also passed package/helpers, V8/shell/ripgrep tool execution, the default-daemon TUI, and extended touch PTY. New PTY steps verified center filtering, help, a runtime two-key Search binding, layered back behavior, open, and “drag continues; tap interrupts” while a fake model turn remained held. Exit restored terminal state. All data used temporary HOME/CODEX_HOME and loopback services.
 
-手机增量出包 88.9 秒（含起始温控等待 2.1 秒），最终 Rust 回归 76.4 秒，程序包统一验收 86.8 秒（含起始降温等待 18.7 秒）；这些不是首次全新构建耗时。新包约 598.8 MiB，源码/依赖/缓存及四个包合计约 32.57 GiB；本轮测试编译采样进程组 RSS 峰值约 6.97 GiB。记录在 `~/codex-touch-build/agents-build-record.json`，保留旧包供回退。自动验收后，用户已在真实 Termux 中反馈本轮两处触摸测试通过。
+The phone's incremental package build took 88.9 seconds, including 2.1 seconds waiting for initial cooling. Final Rust validation took 76.4 seconds; unified package checks took 86.8 seconds, including 18.7 seconds waiting for initial cooling. These are not fresh-build timings. The new package is about 598.8 MiB; source, dependencies, caches, and four packages total about 32.57 GiB. Peak sampled test-compilation process-group RSS was about 6.97 GiB. Records are in `~/codex-touch-build/agents-build-record.json`; older packages remain available. The user confirmed these two touch areas in real Termux after automated validation.

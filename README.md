@@ -1,28 +1,30 @@
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 # codex-touch
 
-为 Termux 中的 Codex 增加触摸操作，让手机上缺少 Shift 等组合键时，也能点击提示文字执行操作。
+Touch controls for Codex in Termux. Tap shortcut hints to perform actions that would otherwise require Shift or other keyboard combinations on a phone.
 
-本项目维护针对 **Codex 0.169.0** 的 Rust TUI 源码补丁和手机构建工具，生成独立的适配版客户端。使用已有的鼠标协议和运行时快捷键处理，不需要修改 Termux APK。项目独立维护，与 OpenAI 无隶属关系。
+This project maintains a Rust TUI patch and on-device build tools for **Codex 0.169.0**. It builds a separate adapted client using the existing mouse protocol and runtime key bindings. No Termux APK modification is required. The project is independently maintained and is not affiliated with OpenAI.
 
-当前版本号 **0.1.0** 对应历史框架基线；`main` 包含下表中的新增功能，记录在 [Unreleased](CHANGELOG.md)。当前公开源码尚未发布 GitHub Release 或提供预编译下载。
+Current version: **0.2.0**, the first functional release. See the [changelog](CHANGELOG.md) and [v0.2.0 Release](https://github.com/Zircon10086/codex-touch/releases/tag/v0.2.0). This release provides source and checksums; build the client using the instructions below. No prebuilt binary is included.
 
-## 功能与范围
+## Features and scope
 
-| 位置 | 触摸操作 |
+| Surface | Touch controls |
 | --- | --- |
-| 异步问答 | 点摘要展开、点选答案、Other/自由编辑、提交、跳过与前后题提示 |
-| 主输入区 | 点击帮助、换行、模式等提示；有草稿时仍可打开帮助与插入换行 |
-| 快捷键帮助 | 点击完整显示的独立动作，支持运行时单键和两段快捷键 |
-| Agent command center | 点击任务行选中、再点已选中行打开；筛选、分组、底部提示与帮助动作 |
-| 工作状态 | 点击完整显示的 `esc to interrupt` 中断任务，拖动不会激活 |
+| Asynchronous questions | Expand the summary, choose an answer, use Other or freeform editing, submit, skip, and navigate between questions |
+| Main composer | Tap help, newline, and mode hints; help and newline remain available with a draft |
+| Shortcut help | Tap fully visible individual actions, including runtime single-key and two-key bindings |
+| Agent command center | Tap a task to select it, then tap the selected task to open it; use filters, grouping, footer hints, and help actions |
+| Working status | Tap the fully visible `esc to interrupt` hint; dragging does not activate it |
 
-适用于默认全屏 TUI，通过 `CODEX_TOUCH=1` 显式启用。普通同步问答、其他确认弹窗、部分合并快捷键参考行和 `--no-alt-screen` 尚未适配。Android 软键盘仍需手动打开；异步答案编辑器的便捷换行入口和曾报告的多题卡住问题仍待后续处理。具体覆盖见[快捷键与中心操作](docs/shortcut-touch.md)。
+Touch support is opt-in through `CODEX_TOUCH=1` and targets the default full-screen TUI. Synchronous question dialogs, other confirmation dialogs, some combined shortcut reference entries, and `--no-alt-screen` are not adapted yet. Open the Android keyboard manually. A convenient newline action inside the asynchronous answer editor and a reported multi-question stall remain follow-up work. See [shortcut and command center coverage](docs/shortcut-touch.md) for details.
 
-## 在手机上构建与运行
+## Build and run on a phone
 
-已验证环境为 ARM64 手机上的 Debian chroot，终端由 Termux 提供。当前目标是 `aarch64-unknown-linux-gnu`（glibc），产物需要在兼容的 Linux 用户环境中运行。其他 Termux 发行渠道、proot 和其他架构尚未完成同等验收。
+The verified environment is Debian chroot on an ARM64 Android phone, with Termux providing the terminal. The target is `aarch64-unknown-linux-gnu` (glibc); the resulting package runs inside a compatible Linux userspace. Other Termux distribution channels, proot, and other architectures have not received equivalent validation.
 
-先准备 Debian 环境，再按[手机构建指南](docs/build.md)安装依赖及固定的 Rust 1.95.0。进入该环境，在 Linux 文件系统中执行：
+Prepare Debian and install the dependencies and pinned Rust 1.95.0 toolchain using the [phone build guide](docs/build.md). Inside that environment, use a Linux filesystem:
 
 ```sh
 git clone https://github.com/Zircon10086/codex-touch.git
@@ -32,15 +34,15 @@ bash scripts/build-touch.sh
 bash scripts/run-touch.sh
 ```
 
-默认构建目录为 `~/codex-touch-build`，生成包为 `packages/touch-agents-0.169.0`。构建脚本拒绝覆盖现有包；后续构建可以用 `CODEX_TOUCH_PACKAGE` 指定新目录。无需先构建原版基线。
+The default build directory is `~/codex-touch-build`; the output is `packages/touch-agents-0.169.0`. Existing packages are never overwritten. Set `CODEX_TOUCH_PACKAGE` to a new directory for later builds. Building the unmodified baseline first is optional.
 
-启动器只设置 `CODEX_TOUCH=1`，不改变 HOME/CODEX_HOME。与日用 Codex 在相同用户环境下运行时，会共用配置和会话；需要隔离时另设 `CODEX_HOME`。它不替换日用 `codex` 命令。
+The launcher sets `CODEX_TOUCH=1` without changing HOME or CODEX_HOME. Running it as the same Linux user as your regular Codex shares configuration and sessions. Set a separate `CODEX_HOME` if you want isolation. It does not replace your regular `codex` command.
 
-完整构建需要下载依赖并占用较多空间：首轮基线实测约 18.1 GiB，加入测试缓存和四个保留包后约 32.57 GiB；这些是特定手机的记录，见[基线构建](docs/baseline-build.md)。脚本默认单任务并降低优先级。构建与测试缓存应放在 Linux 文件系统，避免 Android 共享存储的权限限制。
+A full build downloads dependencies and uses substantial disk space. The initial baseline used about 18.1 GiB; adding test caches and retaining four packages brought the measured total to about 32.57 GiB. These are observations from one phone, not minimum requirements; see the [baseline build record](docs/baseline-build.md). Builds use one job and reduced scheduling priority by default. Keep sources, caches, and executables on a Linux filesystem rather than Android shared storage.
 
-## 验证与贡献
+## Verification and contributions
 
-2026-11-17：409 项去重 Rust 回归、隔离模型工具回合、SGR 鼠标 PTY 与终端恢复检查通过。用户已确认第一阶段主要点答路径可用，并在后续补齐后确认 Agent command center 与工作中断触摸测试通过。详细证据和待验收边界见[第一阶段记录](docs/phase1.md)及[快捷键记录](docs/shortcut-touch.md)；自动化测试不能替代 Android 输入法验收。
+As of 2026-11-17, 409 distinct Rust regression tests, isolated model/tool round trips, SGR mouse PTY checks, and terminal restoration checks passed. On-device testing confirmed the main asynchronous answer paths, followed by the agent command center and interrupt hint fixes. Detailed evidence and remaining gaps are recorded in [phase one](docs/phase1.md) and [shortcut testing](docs/shortcut-touch.md). Automated tests do not establish Android keyboard behavior.
 
 ```sh
 bash scripts/check.sh
@@ -48,16 +50,18 @@ bash scripts/check.sh --upstream-source "$HOME/codex-touch-build/upstream" --rus
 bash scripts/check.sh --touch-package "$HOME/codex-touch-build/packages/touch-agents-0.169.0"
 ```
 
-基础检查只需要 Bash、Python 3.11+ 标准库、Git 和常见 Unix 工具。GitHub Actions 运行基础检查；Rust 编译和真实程序验收为显式的耗时步骤。贡献方式见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+Basic checks require Bash, Python 3.11+ with its standard library, Git, and common Unix tools. GitHub Actions runs those checks. Rust compilation and actual-package validation are explicit, longer-running steps. See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute.
 
-## 文档与源码
+## Documentation and source
 
-- [手机构建指南](docs/build.md)：依赖、首次构建、启动、重建与环境边界。
-- [设计说明](docs/design.md)与[开发指南](docs/development.md)：实现约定、检查和版本管理。
-- [首次调查](docs/termux-touch.md)：Termux 输入链路和软键盘实验。
-- [src/](src/README.md)：固定上游补丁、许可证和来源。
-- [tests/](tests/README.md)：合成输入、程序包和 PTY 验收。
+- [Phone build guide](docs/build.md): dependencies, first build, launch, rebuilding, and environment boundaries.
+- [Design](docs/design.md) and [development guide](docs/development.md): implementation conventions, checks, and versioning.
+- [Initial investigation](docs/termux-touch.md): Termux input routing and keyboard experiments.
+- [src/](src/README.md): the pinned upstream patch, licenses, and provenance.
+- [tests/](tests/README.md): synthetic input, package, and PTY validation.
 
-## 许可证
+English is the default project language. Each document links to its Simplified Chinese translation at the top.
 
-当前源码采用 [Apache License 2.0](LICENSE)，与固定版本的上游 Codex 相同。版权、修改说明和上游声明见 [NOTICE](NOTICE) 与[源码来源](src/README.md)。第三方代码保留各自许可证；历史 `v0.1.0` 的 MIT 许可记录不变。
+## License
+
+Current source is licensed under the [Apache License 2.0](LICENSE), matching the pinned upstream Codex version. See [NOTICE](NOTICE) and [source provenance](src/README.md) for copyright, modifications, and upstream notices. Third-party code retains its own licenses. The historical `v0.1.0` MIT license record remains unchanged.

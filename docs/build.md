@@ -1,23 +1,25 @@
-# 手机构建指南
+[English](build.md) | [简体中文](build.zh-CN.md)
 
-## 支持环境
+# Phone build guide
 
-已验证：ARM64 Android 手机，Termux 终端，Debian chroot，GNU/glibc 工具链。目标固定为 `aarch64-unknown-linux-gnu`。构建和程序运行都在 Debian 环境内完成，终端输入输出直接连接 Termux 的 PTY。
+## Supported environment
 
-本仓库不安装或管理 chroot。先准备可工作的 Debian 环境；当前发布流程不要求本机专用的启动器、root 命令桥或 Android SDK。原生 Termux 的 Bionic 编译器不能直接替代这里的 glibc 编译器。其他 Linux 用户环境可能可行，但尚未验证 proot 或其他 CPU 架构。
+Verified: an ARM64 Android phone, a Termux terminal, Debian chroot, and a GNU/glibc toolchain. The pinned target is `aarch64-unknown-linux-gnu`. Compile and run inside Debian, with input/output connected directly to Termux's PTY.
 
-将克隆、源码、Cargo 缓存和可执行包放在 Debian 的 Linux 文件系统，例如 `$HOME`。不要将构建输出放到 `/sdcard` 或 Android 共享存储。仓库本身若放在共享存储，脚本须用 `bash` 调用。
+This repository does not install or manage chroot. Prepare a working Debian environment first. Device-specific launchers, a root command bridge, and the Android SDK are not required. Native Termux's Bionic compiler cannot directly replace the glibc compiler used here. Other Linux userspaces may work, but proot and other CPU architectures are unverified.
 
-## 安装依赖
+Keep the clone, upstream sources, Cargo caches, and executable packages on the Debian Linux filesystem, such as `$HOME`. Do not put build output on `/sdcard` or Android shared storage. If the project repository itself is on shared storage, invoke scripts through `bash`.
 
-需要 Python 3.11+（使用标准库 `tomllib`），建议使用 Debian 12 或更新版本。在 Debian 中以有包管理权限的用户安装依赖。下面两条是管理员命令；普通用户可使用已配置的 `sudo` 或进入管理员 shell 后执行：
+## Dependencies
+
+Python 3.11+ is required for standard-library `tomllib`; Debian 12 or newer is recommended. Install these packages with Debian package-management privileges. The following are administrator commands; use a configured `sudo` or an administrator shell if needed:
 
 ```sh
 apt-get update
 apt-get install -y build-essential cmake pkg-config libssl-dev libcap-dev lld git python3 curl ca-certificates
 ```
 
-在用于构建的普通用户下，按照 [rustup 官方说明](https://rustup.rs/)安装 rustup。已有 rustup 时直接安装固定工具链：
+Install rustup for the ordinary build user using the [official instructions](https://rustup.rs/). If rustup is already available, install the pinned toolchain:
 
 ```sh
 rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy --component rust-src
@@ -25,11 +27,11 @@ rustup run 1.95.0 rustc --version
 cc -dumpmachine
 ```
 
-`cc -dumpmachine` 应为 `aarch64-linux-gnu`。项目构建脚本自行选择 Rust 1.95.0，无需修改全局默认版本。
+`cc -dumpmachine` should print `aarch64-linux-gnu`. The build scripts select Rust 1.95.0 themselves; changing the global default toolchain is unnecessary.
 
-## 首次构建
+## First build
 
-从 README 的地址克隆项目并进入仓库后：
+Clone the repository from the URL in the README, enter its directory, and run:
 
 ```sh
 bash scripts/check.sh
@@ -37,68 +39,68 @@ bash scripts/build-touch.sh
 bash scripts/run-touch.sh
 ```
 
-`build-touch.sh` 自动获取 `upstream.json` 固定的 Codex 提交，核对已知锁文件修正，应用累计补丁，并复用上游打包流程。未知源码改动会使它停止，已有输出不会被覆盖。第一次使用无需先运行 `build-baseline.sh`；基线构建仅用于与原版对照。
+`build-touch.sh` obtains the Codex revision in `upstream.json`, checks the known lockfile normalization, applies the cumulative patch, and uses upstream packaging. Unknown source edits stop the build. Existing output packages are never overwritten. You do not need to run `build-baseline.sh` first; it exists for comparison with the unmodified client.
 
-默认目录：
+Default directories:
 
 ```text
 ~/codex-touch-build/
-  upstream/                     固定上游源码及补丁
-  target/                       Rust 增量缓存
-  downloads/                    上游打包依赖
-  logs/                         构建日志
-  packages/touch-agents-0.169.0/ 完整适配包
+  upstream/                     Pinned upstream source with the patch
+  target/                       Rust incremental cache
+  downloads/                    Upstream packaging dependencies
+  logs/                         Build logs
+  packages/touch-agents-0.169.0/ Complete adapted package
 ```
 
-构建采用单个 Cargo 任务、`dev-small` 配置和 LLD，使用 `--locked`。Codex 自有辅助程序本地编译；V8、ripgrep 等第三方产物按上游构建流程下载并校验。构建脚本不会启动 Codex 会话或读取日用 API 配置。
+Builds use one Cargo job, the `dev-small` profile, LLD, and `--locked`. Codex's own helpers compile locally; third-party V8 and ripgrep artifacts are downloaded and verified according to upstream packaging. The build does not start a Codex session or read your regular API configuration.
 
-首次下载和编译耗时较长。既有手机的基线首次尝试至成功约 42.5 分钟，包含下载、排障和降温；增量开发包通常快得多。空间与时间实测见[基线记录](baseline-build.md)和[当前功能记录](shortcut-touch.md)，不要把实测值当作最低资源要求。
+Initial downloads and compilation take time. On the development phone, the first baseline attempt through successful packaging took about 42.5 minutes, including download, debugging, and cooling. Incremental builds are much faster. See the [baseline measurements](baseline-build.md) and [current feature record](shortcut-touch.md); these observations are not minimum requirements.
 
-保持 Termux 可运行并留意温度、内存和剩余空间。需要唤醒锁时，在宿主 Termux 中执行 `termux-wake-lock`，结束后执行 `termux-wake-unlock`。仓库构建脚本只有单任务和低优先级控制；开发记录中的自动温控监视器是测试设备本地工具，没有随本项目提供。
+Keep Termux running and watch temperature, memory, and free space. If needed, run `termux-wake-lock` in host Termux, then `termux-wake-unlock` when finished. Repository scripts provide one-job and low-priority controls only. The automatic thermal monitor mentioned in development records is a device-local tool and is not distributed with this project.
 
-## 启动与隔离
+## Launch and isolation
 
-`run-touch.sh` 启用 `CODEX_TOUCH=1` 后执行包内 Codex，沿用原有参数：
+`run-touch.sh` sets `CODEX_TOUCH=1` and runs the package's Codex, forwarding arguments:
 
 ```sh
 bash scripts/run-touch.sh --version
 bash scripts/run-touch.sh
 ```
 
-正常启动会使用当前用户的 Codex 配置与会话。希望单独配置和测试时可以显式指定新目录，再完成该环境的正常配置：
+Normal launches use the current user's Codex configuration and sessions. To configure and test separately, explicitly select another directory and complete normal setup there:
 
 ```sh
 CODEX_HOME="$HOME/.codex-touch-test" bash scripts/run-touch.sh
 ```
 
-所有自动化程序包测试都会使用临时 HOME/CODEX_HOME 和本机假服务，不需要真实 API Key。输入法仍需通过 Termux 的键盘按钮手动打开。
+Automated package tests use temporary HOME/CODEX_HOME and local fake services. They need no real API key. Open the keyboard manually using Termux's keyboard control.
 
-## 重建、选包与回退
+## Rebuild, choose a package, and roll back
 
-已有包不覆盖。用新的输出目录构建，并用相同变量启动：
+Existing output is preserved. Build into a new directory, then select that directory when launching:
 
 ```sh
 CODEX_TOUCH_PACKAGE="$HOME/codex-touch-build/packages/touch-local" bash scripts/build-touch.sh
 CODEX_TOUCH_PACKAGE="$HOME/codex-touch-build/packages/touch-local" bash scripts/run-touch.sh
 ```
 
-旧包若保留，可把 `CODEX_TOUCH_PACKAGE` 指向旧目录切回。`CODEX_TOUCH_BUILD_DIR` 用于变更整个 Linux 构建根目录；`CODEX_TOUCH_JOBS` 调整编译并发，手机上建议保留默认值 1。
+To return to a retained older package, point `CODEX_TOUCH_PACKAGE` to it. `CODEX_TOUCH_BUILD_DIR` changes the entire Linux build root. `CODEX_TOUCH_JOBS` changes compilation concurrency; retain the default of 1 on a phone unless you have measured the impact.
 
-## 验收
+## Validation
 
 ```sh
 bash scripts/check.sh --upstream-source "$HOME/codex-touch-build/upstream" --rust-tests
 bash scripts/check.sh --touch-package "$HOME/codex-touch-build/packages/touch-agents-0.169.0"
 ```
 
-两项均属于耗时检查。Rust 测试首次会增加编译缓存；程序包检查启动临时本机服务和伪终端。真实 Android 点按、软键盘以及不同 Termux 版本仍需实际设备验收。
+Both are longer-running checks. The first Rust test build adds compilation caches; package checks start temporary local services and pseudoterminals. Android touch, keyboard behavior, and other Termux versions still need device testing.
 
-## 开发设备的启动示例
+## Development-device example
 
-开发记录中的 `crsh`、`crcodex` 和 `termux-run` 是测试设备已有环境的命令，其他用户无需安装它们。在该设备上，可从 Termux 进入 `crsh`，再执行：
+`crsh`, `crcodex`, and `termux-run` in historical records belong to the development device's existing environment. Other users do not need them. On that device, enter `crsh` from Termux, then run:
 
 ```sh
 bash /storage/emulated/0/Agent/codex-touch/scripts/run-touch.sh
 ```
 
-其他环境直接进入自己的 Debian shell，在克隆的仓库目录运行同一脚本即可。
+Elsewhere, enter your own Debian shell and run the script from the cloned repository.

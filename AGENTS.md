@@ -1,13 +1,16 @@
-# codex-touch 开发约定
+[English](AGENTS.md) | [简体中文](AGENTS.zh-CN.md)
 
-- 本项目为 Termux 中的 Codex 提供触摸操作支持，采用 Apache-2.0 许可证，保留上游及第三方声明。
-- 修改前阅读 `README.md`、`docs/design.md` 和相关源码；按需更新设计说明。
-- 先验证 Termux 输入到 Codex 的实际链路，再确定实现语言和组件边界。优先复用已有接口与上游逻辑。
-- 维持最小必要依赖；不要为尚未实现的功能预建插件、服务或抽象层。
-- 源码放入 `src/`，有行为覆盖价值的测试放入 `tests/`。新检查和测试应接入 `scripts/check.sh`，避免漏跑。
-- 每次改动运行 `bash scripts/check.sh`，报告检查范围；基础检查通过不代表触摸功能或手机交互已验证。
-- 修改面向用户的行为时更新 `CHANGELOG.md`。版本与发布遵循 `docs/development.md`。
-- 使用 UTF-8、LF；共享存储中的脚本通过 `bash` 调用，不能依赖文件系统可执行位。
-- Debian guest 需要宿主工具时使用 `termux-run`，不混用 Android 与 Debian PATH。
-- 不自动修改全局 Git 配置；需要时用单次 `-c` 指定身份和当前仓库的 `safe.directory`。
-- 诊断材料使用合成数据，不提交终端会话内容、凭据或个人数据。保持上级工作区要求的手机操作与隐私边界。
+# codex-touch development conventions
+
+- This project adds touch controls to Codex in Termux under Apache-2.0. Preserve upstream and third-party notices.
+- Before editing, read `README.md`, `docs/design.md`, and the relevant source. Update the design when needed.
+- Verify the actual Termux-to-Codex input path before choosing an implementation language or component boundary. Prefer existing interfaces and upstream logic.
+- Keep dependencies minimal. Do not prebuild plugins, services, or abstractions for features that do not exist yet.
+- Keep source changes in `src/` and meaningful behavior tests in `tests/`. Register new checks with `scripts/check.sh` so they are not silently skipped.
+- Run `bash scripts/check.sh` after changes and report its scope. Passing basic checks does not establish touch functionality or on-device interaction.
+- Record user-visible changes in `CHANGELOG.md`. Follow `docs/development.md` for versions and releases.
+- Use UTF-8 and LF. Invoke shared-storage shell scripts through `bash`; do not depend on executable permission bits on Android shared storage.
+- On the development device, use `termux-run` when Debian needs host Termux tools. Do not mix Android and Debian PATHs.
+- Do not change global Git configuration automatically. Pass identity and the repository-specific `safe.directory` as one-command `git -c` options when needed.
+- Use synthetic diagnostic data. Do not commit terminal sessions, credentials, or personal information. Respect the parent workspace's phone-operation and privacy requirements.
+- Use English for default documentation, code comments, script output, commit messages, and Release notes. Keep Chinese documents in sibling `*.zh-CN.md` files with language links at the top of both versions. Update both languages when behavior or versions change. Preserve multilingual input fixtures needed by tests.

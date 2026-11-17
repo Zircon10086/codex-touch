@@ -1,26 +1,29 @@
-# 测试目录
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-按实际行为添加测试，并接入 `scripts/check.sh`。优先使用合成输入验证事件转换、边界处理和退出清理，避免依赖私人会话数据。
+# Tests
 
-`probe_pty.py` 在独立伪终端内运行诊断脚本，检查点击命中、短时关闭与恢复鼠标上报、正常退出和信号退出后的终端状态。已接入 `bash scripts/check.sh`。这不是 Codex 集成测试；[键盘真机验收](../docs/termux-touch.md)需在普通 Termux 会话中另做。
+Add tests for observable behavior and register them with `scripts/check.sh`. Prefer synthetic inputs for event conversion, boundaries, and cleanup; avoid private session data.
 
-`test_prepare_lock.py` 检查发布锁文件修正只影响本地包版本，拒绝未知输入或错误输出校验值，并覆盖只读检查与重复执行。
+`probe_pty.py` runs the diagnostic script in an isolated pseudoterminal. It checks hit/miss behavior, temporary mouse-reporting disable/restore, normal exit, signal exit, and terminal restoration. It is part of basic checks. It is not a Codex integration test; [keyboard validation](../docs/termux-touch.md) still requires a real Termux session.
 
-`baseline_smoke.py` 验证实际构建包的版本和辅助程序、app-server 初始化，以及回环假模型驱动的代码执行和回复；另在合成 PTY 中验证默认后台模式的 TUI，并停止测试后台服务。使用独立临时 HOME/CODEX_HOME，只向本机假服务发送合成数据。它需要先完成基线构建，通过统一入口显式运行：
+`test_prepare_lock.py` verifies that lockfile normalization changes only local package versions, rejects unknown inputs or unexpected output hashes, and supports read-only and repeated checks.
+
+`baseline_smoke.py` checks the built package's version and helpers, app-server initialization, and a loopback model-driven code-execution round trip. It also exercises the default-daemon TUI in a synthetic PTY and stops the test daemon. It uses temporary HOME/CODEX_HOME and sends only synthetic data to a local service:
 
 ```sh
 bash scripts/check.sh --baseline-package "$HOME/codex-touch-build/packages/baseline-0.169.0"
 ```
 
-不传 `--baseline-package` 时不会执行已构建 Codex 的集成验收。
+Without `--baseline-package`, basic checks do not launch a built Codex package.
 
+`touch_pty.py` drives the adapted client's asynchronous questions using SGR mouse events, terminal resizing, a local model fixture, and isolated state. It verifies answer delivery and terminal restoration. Run it with `bash scripts/check.sh --touch-package PATH`, which also runs the package regressions. The original baseline fails at summary expansion.
 
-`touch_pty.py` 驱动真实适配包的异步问答界面，使用合成 SGR 点击、终端缩放、本机假模型和隔离状态，检查答案投递及终端恢复。通过 `bash scripts/check.sh --touch-package PATH` 运行，并自动运行已有程序包回归。原版基线会在摘要点击展开处失败。
+Rust touch tests live in `src/async-question-touch.patch`; after application they appear in upstream modules such as `async_questions/mouse_tests.rs` and question integration tests. `bash scripts/check.sh --rust-tests` compiles and runs selected question, shared-list, and synchronous-dialog regressions. The first run compiles additional test dependencies. Use `--upstream-source PATH` to verify the exact source. See [phase one](../docs/phase1.md).
 
-Rust 触摸行为测试保存在 `src/async-question-touch.patch`，应用后位于上游 `async_questions/mouse_tests.rs` 和问答集成测试模块。`bash scripts/check.sh --rust-tests` 编译并运行问答、共享行渲染器和普通问答弹层回归；首次会编译额外的上游测试依赖。精确源码核对可用 `--upstream-source PATH`。详见[阶段一说明](../docs/phase1.md)。
+`test_prepare_touch.py` uses temporary synthetic Git repositories to check patch application, repeat execution, read-only verification, preservation of the real index, and rejection of wrong versions, local modifications, pre-existing new files, and unknown files.
 
-`test_prepare_touch.py` 用临时合成 Git 仓库检查补丁应用、重复执行、只读检查、真实索引保持，以及拒绝错误版本、本地改动、预先存在的新文件和未知文件。
+Hint coverage in the cumulative patch is registered through `shortcut`, `footer`, and `live_center` in `scripts/test-touch.sh`. The extended PTY uses custom Shift+Enter, Shift+Up, and two-key transcript-search bindings. It covers question navigation, draft newline, help open/close, mode changes, reasoning effort, and exact multiline message delivery. The old phase-one package does not support these later tests.
 
-提示点击测试同样保存在累计补丁中：`shortcut`、`footer`、`live_center` 已登记到 `scripts/test-touch.sh`。扩展的 `touch_pty.py` 使用自定义 Shift+Enter、Shift+Up 和两段记录搜索快捷键，覆盖问答前后导航、草稿换行、帮助开关、模式切换、推理强度和多行消息发送，并核对实际发往本机模型的内容。旧第一阶段包不具备这些新增行为。
+Command center and interrupt coverage adds `status_indicator`. `live_center` includes actual App modal routing, selection/opening, filters, help actions, and refresh/drag/resize cancellation. The PTY also checks filters, help, a two-key Search binding, back/open behavior, and interrupting a held local-model turn. Current package validation requires `touch-agents` or a newer build.
 
-command center 与中断提示回归增加 `status_indicator` 筛选；`live_center` 包含真实 App 弹层路由、任务选择/打开、筛选、帮助动作以及刷新/拖动/缩放取消。`touch_pty.py` 另外验证中心筛选、帮助、两段搜索绑定、返回与打开，并在本机假模型保持运行时点击中断提示。当前程序包验收需要 `touch-agents` 或更新构建。
+`scripts/check-docs.py` validates English/Chinese document pairs, language-switch links, local Markdown links, and the current version in both READMEs and changelogs. It is included in the basic check entry point.
