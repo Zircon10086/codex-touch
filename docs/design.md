@@ -6,7 +6,7 @@
 
 Make Codex usable by touch in Termux: open questions, choose answers, and eventually show the Android keyboard when an editable area is tapped, while preserving keyboard and scroll behavior.
 
-Version 0.1.0 established the scaffold. The [initial investigation](termux-touch.md) describes the input path. Phase one added opt-in asynchronous question controls against a pinned upstream version; see its [implementation and acceptance record](phase1.md). Version 0.2.0 includes those controls and the later shortcut, command center, and interrupt work. Automatic keyboard display remains unimplemented.
+Version 0.1.0 established the scaffold. The [initial investigation](termux-touch.md) describes the input path. Phase one added opt-in asynchronous question controls against a pinned upstream version; see its [implementation and acceptance record](phase1.md). Version 0.2.0 includes those controls and the later shortcut, command center, and interrupt work. Version 0.3.0 adds resume/fork, dialogs, completion, and navigation controls. Automatic keyboard display remains unimplemented.
 
 ## Implementation decisions
 

@@ -52,6 +52,9 @@ def main():
                 errors.append(f"{path.relative_to(ROOT)}: missing heading {link}")
     version = (ROOT / "VERSION").read_text().strip()
     for suffix in (".md", ".zh-CN.md"):
+        notes = ROOT / "docs" / "releases" / f"v{version}{suffix}"
+        if not notes.is_file():
+            errors.append(f"Missing release notes for current version: {notes.relative_to(ROOT)}")
         if f"**{version}**" not in (ROOT / ("README" + suffix)).read_text():
             errors.append(f"README{suffix}: version mismatch")
         if f"## [{version}] - " not in (ROOT / ("CHANGELOG" + suffix)).read_text():

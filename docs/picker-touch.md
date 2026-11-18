@@ -2,7 +2,7 @@
 
 # Picker and dialog touch development
 
-This is accepted `main`-branch work after v0.2.0, pinned to Codex 0.169.0. The separate package is `~/codex-touch-build/packages/touch-pickers-0.169.0`. On 2026-11-18, the user confirmed on-device testing and authorized promotion to the development phone's daily launcher. The v0.2.0 Release and its package are preserved.
+These controls ship in codex-touch v0.3.0, pinned to Codex 0.169.0. The separate package is `~/codex-touch-build/packages/touch-pickers-0.169.0`. On 2026-11-18, the user confirmed on-device testing and authorized promotion to the development phone's daily launcher. The v0.2.0 Release and its package are preserved.
 
 ## Coverage inventory
 
@@ -60,6 +60,6 @@ History search also adapts the visible accept/cancel suffix while excluding the 
 
 After acceptance, `crcodex` starts the verified `touch-pickers` package through a launcher pinned to source commit `8f30ece9e26231e08b748287f8e2c0e2f0e034ba`. The launcher enables touch and preserves the existing configuration/session locations and argument forwarding. Use `crcodex resume` from Termux to open the resume picker. Existing sessions continue using their original executable until restarted.
 
-The older `touch-agents` package and launcher remain available for rollback; `crcodex-stock` retains the unmodified client. Both packages are runtime dependencies and must not be removed during cache cleanup. This local deployment does not create a new GitHub Release. `--version` still reports the pinned upstream Codex version, 0.169.0.
+The older `touch-agents` package and launcher remain available for rollback; `crcodex-stock` retains the unmodified client. Both packages are runtime dependencies and must not be removed during cache cleanup. The same tested patch is published in [v0.3.0](releases/v0.3.0.md); the already installed binary needs no rebuild. `--version` still reports the pinned upstream Codex version, 0.169.0.
 
 Deployment verification: the pinned launcher passed the extended isolated PTY in 55.0 seconds with inherited `CODEX_TOUCH` removed, proving the launcher enables touch itself. Host `crcodex --version` / `--help` and the stock fallback startup also passed. No Rust rebuild was needed.

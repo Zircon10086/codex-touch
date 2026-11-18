@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+No unreleased changes.
+
+## [0.3.0] - 2026-11-18
+
+- Publish v0.3.0 as source with SHA-256 checksums. Confirmed version updates now include a matching GitHub Release in the same delivery.
+
 - Record confirmed on-device acceptance of the picker/dialog build on 2026-11-18 and promote the accepted source to `main`. The development phone uses the verified package through a pinned launcher, with v0.2.0 retained for rollback.
 
 - Add resume/fork picker touch: stable session selection, opening, toolbar filters/sorting, footer actions, and wheel navigation.

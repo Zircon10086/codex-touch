@@ -9,6 +9,7 @@
 - 源码放入 `src/`，有行为覆盖价值的测试放入 `tests/`。新检查和测试应接入 `scripts/check.sh`，避免漏跑。
 - 每次改动运行 `bash scripts/check.sh`，报告检查范围；基础检查通过不代表触摸功能或手机交互已验证。
 - 修改面向用户的行为时更新 `CHANGELOG.md`。版本与发布遵循 `docs/development.md`。
+- 用户确认更新版本时，默认在同一轮交付中发布对应 GitHub Release，除非用户明确要求暂缓。同步版本/文档、验证、推送指定提交和附注标签、上传源码及校验文件、正式发布，并核对公开下载和 CI。不能只推源码就结束，也不再次索要独立发布许可。
 - 使用 UTF-8、LF；共享存储中的脚本通过 `bash` 调用，不能依赖文件系统可执行位。
 - Debian guest 需要宿主工具时使用 `termux-run`，不混用 Android 与 Debian PATH。
 - 不自动修改全局 Git 配置；需要时用单次 `-c` 指定身份和当前仓库的 `safe.directory`。

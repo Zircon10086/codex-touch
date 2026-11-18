@@ -6,9 +6,9 @@ Touch controls for Codex in Termux. Tap shortcut hints to perform actions that w
 
 This project maintains a Rust TUI patch and on-device build tools for **Codex 0.169.0**. It builds a separate adapted client using the existing mouse protocol and runtime key bindings. No Termux APK modification is required. The project is independently maintained and is not affiliated with OpenAI.
 
-Current version: **0.2.0**, the first functional release. See the [changelog](CHANGELOG.md) and [v0.2.0 Release](https://github.com/Zircon10086/codex-touch/releases/tag/v0.2.0). This release provides source and checksums; build the client using the instructions below. No prebuilt binary is included.
+Current version: **0.3.0**. See the [changelog](CHANGELOG.md), [release notes](docs/releases/v0.3.0.md), and [v0.3.0 Release](https://github.com/Zircon10086/codex-touch/releases/tag/v0.3.0). This release provides source and checksums; build the client using the instructions below. No prebuilt binary is included.
 
-The `main` branch adds picker and dialog controls beyond v0.2.0. On-device testing was confirmed on 2026-11-18; see [coverage and acceptance](docs/picker-touch.md). These changes are not part of the v0.2.0 Release.
+Version 0.3.0 adds resume/fork picker, dialog, completion, and navigation controls. On-device testing was confirmed on 2026-11-18; see [coverage and acceptance](docs/picker-touch.md).
 
 ## Features and scope
 
@@ -19,11 +19,11 @@ The `main` branch adds picker and dialog controls beyond v0.2.0. On-device testi
 | Shortcut help | Tap fully visible individual actions, including runtime single-key and two-key bindings |
 | Agent command center | Tap a task to select it, then tap the selected task to open it; use filters, grouping, footer hints, and help actions |
 | Working status | Tap the fully visible `esc to interrupt` hint; dragging does not activate it |
-| Resume / fork (development) | Select/open sessions, filters, sorting, density, preview, expansion, and cancellation |
-| Menus and dialogs (development) | Shared lists, settings, approvals, synchronous questions, MCP forms, provider fields, and startup choices |
-| Completion and navigation (development) | Command/file/skill/mention completion, floating shortcut guides, transcript/pager controls, warnings, and analytics |
+| Resume / fork | Select/open sessions, filters, sorting, density, preview, expansion, and cancellation |
+| Menus and dialogs | Shared lists, settings, approvals, synchronous questions, MCP forms, provider fields, and startup choices |
+| Completion and navigation | Command/file/skill/mention completion, floating shortcut guides, transcript/pager controls, warnings, and analytics |
 
-Touch support is opt-in through `CODEX_TOUCH=1` and targets the default full-screen TUI. The development patch adds the controls listed above; `--no-alt-screen` remains unsupported. Shortcut reference entries that require a different active view remain explanatory. Open the Android keyboard manually. A convenient newline action inside the asynchronous answer editor and a reported multi-question stall remain follow-up work. See [shortcut and command center coverage](docs/shortcut-touch.md) for details.
+Touch support is opt-in through `CODEX_TOUCH=1` and targets the default full-screen TUI. The patch provides the controls listed above; `--no-alt-screen` remains unsupported. Shortcut reference entries that require a different active view remain explanatory. Open the Android keyboard manually. A convenient newline action inside the asynchronous answer editor and a reported multi-question stall remain follow-up work. See [shortcut and command center coverage](docs/shortcut-touch.md) for details.
 
 ## Build and run on a phone
 
@@ -47,7 +47,7 @@ A full build downloads dependencies and uses substantial disk space. The initial
 
 ## Verification and contributions
 
-The unreleased picker/dialog development passed 1,297 distinct Rust regressions on 2026-11-18. On-device testing was subsequently confirmed. See the [development validation record](docs/picker-touch.md) for package tests and acceptance details.
+Version 0.3.0 passed 1,297 distinct Rust regressions on 2026-11-18. On-device testing was subsequently confirmed. See the [validation record](docs/picker-touch.md) for package tests and acceptance details.
 
 As of 2026-11-17, 409 distinct Rust regression tests, isolated model/tool round trips, SGR mouse PTY checks, and terminal restoration checks passed. On-device testing confirmed the main asynchronous answer paths, followed by the agent command center and interrupt hint fixes. Detailed evidence and remaining gaps are recorded in [phase one](docs/phase1.md) and [shortcut testing](docs/shortcut-touch.md). Automated tests do not establish Android keyboard behavior.
 

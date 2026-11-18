@@ -41,14 +41,18 @@ When an identity is not configured, provide `user.name` and `user.email` with on
 - Update VERSION, both READMEs, both changelogs, and release notes together. Create an annotated tag on the validated commit.
 - Never move a published tag; publish a new version to correct it.
 
-For the 0.2.0 release, tag only after checks pass:
+A user-confirmed version update includes a GitHub Release in the same delivery unless the user explicitly defers it. Ordinary development commits can remain under `Unreleased`; once the version update is confirmed, do not stop at a source push or ask for separate release authorization again.
 
-```sh
-bash scripts/check.sh
-git tag -a v0.2.0 -m "codex-touch 0.2.0"
-```
+Complete the release in this order:
 
-Use Git in the current environment. On the development device, authenticated remote operations use Termux Git through `termux-run`. Source publication and GitHub Release publication are separate operations. Push only the intended branch and release tag; local backup branches and the old scaffold tag are not release inputs.
+1. Choose the version, move accepted changes into its dated changelog entry, and update VERSION, both READMEs, and `docs/releases/vX.Y.Z.md` plus its Chinese translation.
+2. Run repository checks and verify the exact patch against the tested package. Reuse recorded Rust/package results when the tested code is unchanged; otherwise run the relevant validation.
+3. Commit using the verified noreply identity. Create an annotated version tag on that exact commit. Push only `main` and that tag, with automatic tag following disabled.
+4. Export the tagged repository source without Git metadata, local configuration, or caches. Compare archive contents to the commit, check the extracted source, and create SHA256SUMS. Retain licenses and notices.
+5. Create a draft Release with English notes and translation links; upload the source archive and checksums. Verify the release commit's CI and download the draft assets to check their bytes.
+6. Publish the Release as Latest, then verify its public metadata, tag, assets and anonymous downloads. Record the release URL and CI result. A source push or draft alone does not complete a confirmed version update; if publication is blocked, report the exact incomplete step.
+
+Use Git in the current environment. On the development device, authenticated remote operations use Termux Git/gh through `termux-run`. Preserve existing published tags and releases. Never push local backup branches or unrelated historical tags using `--all`, `--mirror`, or `--tags`.
 
 Actual-package validation is described in [phase one](phase1.md). `--rust-tests` and `--touch-package PATH` are explicit, longer-running checks; basic checks do not compile Codex.
 

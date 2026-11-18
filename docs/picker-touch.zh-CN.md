@@ -2,7 +2,7 @@
 
 # 选择器与弹窗触摸开发
 
-这是 v0.2.0 之后已验收的 `main` 分支开发，仍固定 Codex 0.169.0。独立包为 `~/codex-touch-build/packages/touch-pickers-0.169.0`。2026-11-18 用户确认手机测试通过，并授权将其设为开发手机的日用启动目标；v0.2.0 Release 和旧包保留。
+这些功能包含在 codex-touch v0.3.0 中，仍固定 Codex 0.169.0。独立包为 `~/codex-touch-build/packages/touch-pickers-0.169.0`。2026-11-18 用户确认手机测试通过，并授权将其设为开发手机的日用启动目标；v0.2.0 Release 和旧包保留。
 
 ## 覆盖清单
 
@@ -60,6 +60,6 @@ bash /storage/emulated/0/Agent/codex-touch/scripts/run-touch.sh resume
 
 验收后，`crcodex` 通过固定到源码提交 `8f30ece9e26231e08b748287f8e2c0e2f0e034ba` 的启动器运行已验证的 `touch-pickers` 包。启动器启用触摸，保留原配置/会话位置及参数转发。在 Termux 使用 `crcodex resume` 打开恢复列表。已有会话继续使用原程序，重新启动后使用新目标。
 
-原 `touch-agents` 包和启动器保留供回退，`crcodex-stock` 保留未修改的原版。两个包均为运行依赖，清理缓存时不能删除。本机部署不创建新的 GitHub Release。`--version` 仍显示固定上游 Codex 版本 0.169.0。
+原 `touch-agents` 包和启动器保留供回退，`crcodex-stock` 保留未修改的原版。两个包均为运行依赖，清理缓存时不能删除。同一已验证补丁发布为 [v0.3.0](releases/v0.3.0.zh-CN.md)，现有日用二进制无需重新构建。`--version` 仍显示固定上游 Codex 版本 0.169.0。
 
 部署验证：清除继承的 `CODEX_TOUCH` 后，固定启动器通过扩展隔离 PTY，耗时 55.0 秒，确认触摸由启动器自行启用。宿主 `crcodex --version` / `--help` 及原版回退启动均通过，无需重新编译 Rust。

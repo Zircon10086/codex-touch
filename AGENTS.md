@@ -9,6 +9,7 @@
 - Keep source changes in `src/` and meaningful behavior tests in `tests/`. Register new checks with `scripts/check.sh` so they are not silently skipped.
 - Run `bash scripts/check.sh` after changes and report its scope. Passing basic checks does not establish touch functionality or on-device interaction.
 - Record user-visible changes in `CHANGELOG.md`. Follow `docs/development.md` for versions and releases.
+- When the user confirms a version update, publish the matching GitHub Release as part of the same delivery unless the user explicitly defers it. Update version/docs, validate, push the intended commit and annotated tag, upload source/checksums, publish, and verify public downloads and CI. Do not stop after pushing source or request separate release permission again.
 - Use UTF-8 and LF. Invoke shared-storage shell scripts through `bash`; do not depend on executable permission bits on Android shared storage.
 - On the development device, use `termux-run` when Debian needs host Termux tools. Do not mix Android and Debian PATHs.
 - Do not change global Git configuration automatically. Pass identity and the repository-specific `safe.directory` as one-command `git -c` options when needed.
