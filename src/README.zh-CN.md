@@ -7,3 +7,5 @@
 补丁基于 OpenAI Codex（https://github.com/openai/codex），保留上游 Apache-2.0 许可，许可与声明副本为 `LICENSE.upstream`、`NOTICE.upstream`。补丁标识了 codex-touch 对上游文件的修改；原作者的声明保持不变。本项目自有代码、脚本与文档统一采用根目录 Apache-2.0；版权及修改说明见根目录 `NOTICE`。第三方组件保留各自许可证，历史 `v0.1.0` 的 MIT 许可记录不变。分发完整二进制时也需遵守上游及依赖许可。
 
 补丁不包含发布标签的 Cargo.lock 元数据规范化；该修正继续由 `scripts/prepare-lock.py` 独立处理。`prepare-touch.py` 用临时 Git 索引计算预期源码，不修改真实索引，拒绝未知改动。
+
+开发补丁进一步包含恢复/分叉选择器、菜单、弹窗、补全、记录导航和初始设置，具体范围与验收见[选择器触摸记录](../docs/picker-touch.zh-CN.md)。

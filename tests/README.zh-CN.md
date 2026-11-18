@@ -28,3 +28,5 @@ Rust 触摸行为测试保存在 `src/async-question-touch.patch`，应用后位
 command center 与中断提示回归增加 `status_indicator` 筛选；`live_center` 包含真实 App 弹层路由、任务选择/打开、筛选、帮助动作以及刷新/拖动/缩放取消。`touch_pty.py` 另外验证中心筛选、帮助、两段搜索绑定、返回与打开，并在本机假模型保持运行时点击中断提示。当前程序包验收需要 `touch-agents` 或更新构建。
 
 `scripts/check-docs.py` 验证英中文档配对、顶部语言链接、本地 Markdown 链接，以及两种语言 README 和 CHANGELOG 的当前版本号；已接入基础检查。
+
+开发版选择器/弹窗回归合并为一次去重 Rust 测试。执行器清除继承的 `CODEX_TOUCH`，确保默认关闭测试有效；任何筛选器没有匹配测试均报错。程序包检查改用 `touch_pty.py --extended`，覆盖命令补全、恢复列表工具栏/预览/取消/打开、通用模型弹窗和 CLI 直接恢复。使用新的 `touch-pickers` 构建；若仅复测历史 v0.2.0 PTY，可直接运行 Python 测试而不传 `--extended`。详见[覆盖记录](../docs/picker-touch.zh-CN.md)。

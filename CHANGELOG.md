@@ -4,7 +4,11 @@
 
 ## [Unreleased]
 
-No unreleased changes.
+- Add resume/fork picker touch: stable session selection, opening, toolbar filters/sorting, footer actions, and wheel navigation.
+- Extend touch to shared lists, settings, approvals, synchronous questions, MCP forms, provider editing, startup prompts, and initial setup controls while preserving validation and confirmation.
+- Add history-search accept/cancel hints and completion-row taps, floating chord/preset guide actions, transcript/pager hints, warning/analytics hints, shortcut customization, and combined subagent navigation.
+- Keep drag, clipping, resize, stale-state, focus, and disabled-touch checks. Use an independent `touch-pickers-0.169.0` package; do not replace installed v0.2.0 clients.
+- Pass 1,297 distinct Rust regressions and isolated actual-package checks, including extended resume/completion/dialog PTY coverage. See [development coverage](docs/picker-touch.md).
 
 ## [0.2.0] - 2026-11-17
 

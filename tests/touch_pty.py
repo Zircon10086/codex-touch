@@ -140,7 +140,7 @@ class Handler(FixtureHandler):
         except (BrokenPipeError,ConnectionResetError): pass
 
 
-def exercise(package):
+def exercise(package, extended=False):
     binary=package/"bin/codex"
     with tempfile.TemporaryDirectory(prefix="codex-touch-pty-") as directory:
         root=Path(directory); state=root/"state";state.mkdir();workspace=root/"workspace";workspace.mkdir()
@@ -324,6 +324,19 @@ trust_level = "trusted"
             until(lambda:screen.find("Find:") and not screen.find("Keyboard shortcuts"),"Chord did not open transcript search")
             os.write(master,b"\x1b")
             until(lambda:screen.find("DRAFT_THIRD") and screen.find("for shortcuts"),"Search close lost draft")
+            if extended:
+                click("for shortcuts")
+                click("/keymap")
+                until(lambda:screen.find("Type to search shortcuts"),"Customization hint did not open the keymap picker")
+                click("esc")
+                until(lambda:screen.find("DRAFT_THIRD") and screen.find("for shortcuts"),"Keymap cancel lost the draft")
+                # Complete an actual pending prefix via its floating guide.
+                os.write(master,b"\x18")
+                until(lambda:screen.find("f3") and screen.find("Esc cancel"),"Pending chord guide missing")
+                click("f3")
+                until(lambda:screen.find("Find:"),"Floating guide tap did not complete the chord")
+                os.write(master,b"\x1b")
+                until(lambda:screen.find("DRAFT_THIRD") and screen.find("for shortcuts"),"Floating chord search close lost draft")
             # Submit using the help action, then inspect the actual outgoing model input.
             click("for shortcuts")
             click("Send message")
@@ -356,6 +369,36 @@ trust_level = "trusted"
             until(lambda:screen.find("Agent command center") and not screen.find("Task shortcuts"),"Center help back closed the whole view")
             click("enter open")
             until(lambda:screen.find("shift+tab mode") and not screen.find("Agent command center"),"Center open hint failed")
+            if extended:
+                # Complete a command by touch; Tab inserts it before Enter executes it.
+                os.write(master,b"/res")
+                until(lambda:screen.find("/resume"),"Resume completion missing")
+                click("/resume")
+                until(lambda:screen.find("› /resume"),"Command tap did not complete the draft")
+                os.write(master,b"\r")
+                until(lambda:screen.find("Resume a previous session") and screen.find("Run the local touch fixture."),"Resume picker missing")
+                pos=screen.find("Run the local touch fixture.")
+                mouse(pos);mouse((pos[0]+1,pos[1]),32);mouse(pos,up=True)
+                end=time.monotonic()+.3
+                while time.monotonic()<end:pump(.05)
+                assert screen.find("Resume a previous session"),"Row drag resumed a session"
+                click("Archived")
+                until(lambda:screen.find("No sessions"),"Archived filter failed")
+                click("Active")
+                until(lambda:screen.find("Run the local touch fixture."),"Active filter did not restore the session")
+                click("transcript")
+                until(lambda:screen.find("T R A N S C R I P T"),"Preview hint did not open transcript")
+                click("close")
+                until(lambda:screen.find("Resume a previous session"),"Preview close hint failed")
+                click("Run the local touch fixture.")
+                until(lambda:not screen.find("Resume a previous session") and screen.find("shift+tab mode"),"Selected row tap did not resume")
+                # A generic settings list uses its modal owner's original cancel route.
+                os.write(master,b"\x1b[200~/model\x1b[201~")
+                until(lambda:screen.find("› /model"),"Model command draft missing")
+                os.write(master,b"\r")
+                until(lambda:screen.find("Select Model") or screen.find("Select model"),"Model picker missing")
+                click("esc")
+                until(lambda:screen.find("shift+tab mode") and not screen.find("Select Model") and not screen.find("Select model"),"Model picker cancel hint failed")
             # Hold a fresh synthetic turn until the displayed interrupt hint is tapped.
             os.write(master,b"\x1b[200~TOUCH_HOLD_INTERRUPT\x1b[201~")
             until(lambda:screen.find("TOUCH_HOLD_INTERRUPT"),"Interrupt fixture draft missing")
@@ -374,6 +417,19 @@ trust_level = "trusted"
             assert process.returncode==0,process.returncode
             assert termios.tcgetattr(slave)==saved,"TTY attributes not restored"
             assert not screen.mouse,"Mouse reporting not disabled on exit"
+            if extended:
+                # Re-enter through the CLI startup picker using only the fixture's persisted session.
+                raw.clear();answered.clear();screen.resize(140,45)
+                process=subprocess.Popen([str(binary),"resume"],cwd=workspace,env=env,stdin=slave,stdout=slave,stderr=slave,start_new_session=True)
+                until(lambda:screen.find("Resume a previous session") and screen.find("Run the local touch fixture."),"Startup resume picker missing",timeout=60)
+                assert screen.mouse,"Startup resume picker has no mouse reporting"
+                click("Run the local touch fixture.")
+                until(lambda:not screen.find("Resume a previous session") and screen.find("shift+tab mode"),"Startup row did not resume")
+                os.write(master,b"\x04");until(lambda:process.poll() is not None,"Resumed TUI did not exit")
+                assert process.returncode==0
+                assert termios.tcgetattr(slave)==saved,"Resumed TTY attributes not restored"
+                assert not screen.mouse,"Resumed mouse reporting not disabled"
+                print("PASS: extended picker PTY (customization, floating chord, command completion, resume row/drag, archive filter, preview/close, modal cancel, startup resume).")
             print("PASS: touch PTY (expand, capture, resize, choice, Other, freeform, footer submit/navigation, draft newline/help/close, mode, reasoning, runtime chord, multiline send, delivery, agent center filter/help/chord/open/back, held turn interrupt, tty cleanup).")
         except BaseException:
             # Only the temporary fixture's isolated logs; never the user's Codex state.
@@ -395,4 +451,6 @@ trust_level = "trusted"
 if __name__=="__main__":
     import argparse
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument("package",type=Path)
-    exercise(parser.parse_args().package.resolve())
+    parser.add_argument("--extended",action="store_true",help="Exercise unreleased picker and modal touch controls")
+    args=parser.parse_args()
+    exercise(args.package.resolve(),extended=args.extended)

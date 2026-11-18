@@ -8,6 +8,8 @@ This project maintains a Rust TUI patch and on-device build tools for **Codex 0.
 
 Current version: **0.2.0**, the first functional release. See the [changelog](CHANGELOG.md) and [v0.2.0 Release](https://github.com/Zircon10086/codex-touch/releases/tag/v0.2.0). This release provides source and checksums; build the client using the instructions below. No prebuilt binary is included.
 
+The development branch adds picker and dialog controls beyond v0.2.0; see [coverage and acceptance](docs/picker-touch.md). These changes are not part of the published release.
+
 ## Features and scope
 
 | Surface | Touch controls |
@@ -17,8 +19,11 @@ Current version: **0.2.0**, the first functional release. See the [changelog](CH
 | Shortcut help | Tap fully visible individual actions, including runtime single-key and two-key bindings |
 | Agent command center | Tap a task to select it, then tap the selected task to open it; use filters, grouping, footer hints, and help actions |
 | Working status | Tap the fully visible `esc to interrupt` hint; dragging does not activate it |
+| Resume / fork (development) | Select/open sessions, filters, sorting, density, preview, expansion, and cancellation |
+| Menus and dialogs (development) | Shared lists, settings, approvals, synchronous questions, MCP forms, provider fields, and startup choices |
+| Completion and navigation (development) | Command/file/skill/mention completion, floating shortcut guides, transcript/pager controls, warnings, and analytics |
 
-Touch support is opt-in through `CODEX_TOUCH=1` and targets the default full-screen TUI. Synchronous question dialogs, other confirmation dialogs, some combined shortcut reference entries, and `--no-alt-screen` are not adapted yet. Open the Android keyboard manually. A convenient newline action inside the asynchronous answer editor and a reported multi-question stall remain follow-up work. See [shortcut and command center coverage](docs/shortcut-touch.md) for details.
+Touch support is opt-in through `CODEX_TOUCH=1` and targets the default full-screen TUI. The development patch adds the controls listed above; `--no-alt-screen` remains unsupported. Shortcut reference entries that require a different active view remain explanatory. Open the Android keyboard manually. A convenient newline action inside the asynchronous answer editor and a reported multi-question stall remain follow-up work. See [shortcut and command center coverage](docs/shortcut-touch.md) for details.
 
 ## Build and run on a phone
 
@@ -34,7 +39,7 @@ bash scripts/build-touch.sh
 bash scripts/run-touch.sh
 ```
 
-The default build directory is `~/codex-touch-build`; the output is `packages/touch-agents-0.169.0`. Existing packages are never overwritten. Set `CODEX_TOUCH_PACKAGE` to a new directory for later builds. Building the unmodified baseline first is optional.
+The default build directory is `~/codex-touch-build`; the output is `packages/touch-pickers-0.169.0`. Existing packages are never overwritten. Set `CODEX_TOUCH_PACKAGE` to a new directory for later builds. Building the unmodified baseline first is optional.
 
 The launcher sets `CODEX_TOUCH=1` without changing HOME or CODEX_HOME. Running it as the same Linux user as your regular Codex shares configuration and sessions. Set a separate `CODEX_HOME` if you want isolation. It does not replace your regular `codex` command.
 
@@ -42,12 +47,14 @@ A full build downloads dependencies and uses substantial disk space. The initial
 
 ## Verification and contributions
 
+The unreleased picker/dialog development passed 1,297 distinct Rust regressions on 2026-11-18. See the [development validation record](docs/picker-touch.md) for package tests and phone acceptance status.
+
 As of 2026-11-17, 409 distinct Rust regression tests, isolated model/tool round trips, SGR mouse PTY checks, and terminal restoration checks passed. On-device testing confirmed the main asynchronous answer paths, followed by the agent command center and interrupt hint fixes. Detailed evidence and remaining gaps are recorded in [phase one](docs/phase1.md) and [shortcut testing](docs/shortcut-touch.md). Automated tests do not establish Android keyboard behavior.
 
 ```sh
 bash scripts/check.sh
 bash scripts/check.sh --upstream-source "$HOME/codex-touch-build/upstream" --rust-tests
-bash scripts/check.sh --touch-package "$HOME/codex-touch-build/packages/touch-agents-0.169.0"
+bash scripts/check.sh --touch-package "$HOME/codex-touch-build/packages/touch-pickers-0.169.0"
 ```
 
 Basic checks require Bash, Python 3.11+ with its standard library, Git, and common Unix tools. GitHub Actions runs those checks. Rust compilation and actual-package validation are explicit, longer-running steps. See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute.

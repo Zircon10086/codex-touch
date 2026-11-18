@@ -1,8 +1,9 @@
 codex-touch
 Copyright 2026 codex-touch contributors
 
-codex-touch adds touch controls for asynchronous questions, shortcut hints,
-the agent command center and interruption to the OpenAI Codex terminal UI.
+codex-touch adds touch controls for questions, session pickers, menus, dialogs,
+completion, shortcut hints, transcript navigation, the agent command center
+and interruption to the OpenAI Codex terminal UI.
 The pinned upstream revision is recorded in upstream.json. Modified upstream
 files and added tests are identified in src/async-question-touch.patch.
 

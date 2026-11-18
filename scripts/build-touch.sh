@@ -45,7 +45,7 @@ case "$build_root/" in
         printf 'Use the Linux filesystem for source, executables and caches.\n' >&2
         exit 1 ;;
 esac
-package_dir="${CODEX_TOUCH_PACKAGE:-$build_root/packages/touch-agents-${pin[1]#rust-v}}"
+package_dir="${CODEX_TOUCH_PACKAGE:-$build_root/packages/touch-pickers-${pin[1]#rust-v}}"
 package_dir="$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).expanduser().resolve())' "$package_dir")"
 case "$package_dir/" in
     /storage/*|/sdcard/*|/mnt/media_rw/*)
@@ -107,7 +107,7 @@ for name in ("LICENSE.upstream", "NOTICE.upstream"):
 (notices / "LICENSE.codex-touch").write_bytes((project / "LICENSE").read_bytes())
 (notices / "NOTICE.codex-touch").write_bytes((project / "NOTICE").read_bytes())
 (notices / "MODIFICATIONS.txt").write_text(
-    "This package contains codex-touch modifications for asynchronous question, shortcut-hint, agent command center and interrupt-hint touch interaction.\n"
+    "This package contains codex-touch modifications for question, picker, dialog, completion, shortcut-hint, transcript and agent command center touch interaction.\n"
     "See touch-build.json for the pinned upstream commit and patch digest.\n")
 PYTHON
 printf 'Built touch package: %s\nBuild log: %s\n' "$package_dir" "$log_path"

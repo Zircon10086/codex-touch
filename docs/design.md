@@ -36,3 +36,11 @@ Question and keyboard comparison procedures are maintained in the [investigation
 - The working-status component registers the fully rendered interrupt hint. Coordinate changes caused by the timer cancel old gestures. Interruption, opening tasks, and help actions use the original runtime key route and retain confirmation/state rules.
 
 See [shortcut controls](shortcut-touch.md) for coverage and verification.
+
+## Picker and dialog development
+
+The development patch collects native row and field rectangles and routes touch through the active view. Session rows carry backend and thread identity. A tap selects a row; tapping the selected session opens it. Completion taps insert via the existing completion action without submitting a command. Confirmation dialogs and forms keep their original acceptance and validation rules.
+
+Trusted, UI-authored hint lines can map explicitly supplied runtime bindings forward to rendered labels and description ranges. This does not interpret terminal buffers, model output, search queries, or arbitrary text as input. Explicit semantic controls are used where the owner already has structured actions. Captured gestures remain consumed through release after cancellation.
+
+Standalone prompts reuse their original keyboard handlers. Floating chord guides supply the completion key while retaining the pending prefix. Touch-generated keys include releases where the owner uses transition guards. See [coverage and acceptance](picker-touch.md).

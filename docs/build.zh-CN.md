@@ -49,7 +49,7 @@ bash scripts/run-touch.sh
   target/                       Rust 增量缓存
   downloads/                    上游打包依赖
   logs/                         构建日志
-  packages/touch-agents-0.169.0/ 完整适配包
+  packages/touch-pickers-0.169.0/ 完整适配包
 ```
 
 构建采用单个 Cargo 任务、`dev-small` 配置和 LLD，使用 `--locked`。Codex 自有辅助程序本地编译；V8、ripgrep 等第三方产物按上游构建流程下载并校验。构建脚本不会启动 Codex 会话或读取日用 API 配置。
@@ -90,7 +90,7 @@ CODEX_TOUCH_PACKAGE="$HOME/codex-touch-build/packages/touch-local" bash scripts/
 
 ```sh
 bash scripts/check.sh --upstream-source "$HOME/codex-touch-build/upstream" --rust-tests
-bash scripts/check.sh --touch-package "$HOME/codex-touch-build/packages/touch-agents-0.169.0"
+bash scripts/check.sh --touch-package "$HOME/codex-touch-build/packages/touch-pickers-0.169.0"
 ```
 
 两项均属于耗时检查。Rust 测试首次会增加编译缓存；程序包检查启动临时本机服务和伪终端。真实 Android 点按、软键盘以及不同 Termux 版本仍需实际设备验收。

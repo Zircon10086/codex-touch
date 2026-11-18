@@ -49,7 +49,7 @@ Default directories:
   target/                       Rust incremental cache
   downloads/                    Upstream packaging dependencies
   logs/                         Build logs
-  packages/touch-agents-0.169.0/ Complete adapted package
+  packages/touch-pickers-0.169.0/ Complete adapted package
 ```
 
 Builds use one Cargo job, the `dev-small` profile, LLD, and `--locked`. Codex's own helpers compile locally; third-party V8 and ripgrep artifacts are downloaded and verified according to upstream packaging. The build does not start a Codex session or read your regular API configuration.
@@ -90,7 +90,7 @@ To return to a retained older package, point `CODEX_TOUCH_PACKAGE` to it. `CODEX
 
 ```sh
 bash scripts/check.sh --upstream-source "$HOME/codex-touch-build/upstream" --rust-tests
-bash scripts/check.sh --touch-package "$HOME/codex-touch-build/packages/touch-agents-0.169.0"
+bash scripts/check.sh --touch-package "$HOME/codex-touch-build/packages/touch-pickers-0.169.0"
 ```
 
 Both are longer-running checks. The first Rust test build adds compilation caches; package checks start temporary local services and pseudoterminals. Android touch, keyboard behavior, and other Termux versions still need device testing.
