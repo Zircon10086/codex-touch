@@ -2,7 +2,7 @@
 
 # Picker and dialog touch development
 
-This is unreleased work after v0.2.0, pinned to Codex 0.169.0. The separate package is `~/codex-touch-build/packages/touch-pickers-0.169.0`. Existing installed clients and the published release are not changed.
+This is accepted `main`-branch work after v0.2.0, pinned to Codex 0.169.0. The separate package is `~/codex-touch-build/packages/touch-pickers-0.169.0`. On 2026-11-18, the user confirmed on-device testing and authorized promotion to the development phone's daily launcher. The v0.2.0 Release and its package are preserved.
 
 ## Coverage inventory
 
@@ -52,6 +52,14 @@ bash /storage/emulated/0/Agent/codex-touch/scripts/run-touch.sh resume
 4. Complete a slash command or file mention by touch, then submit separately. Open shortcut help and tap customization; verify a draft is retained.
 5. Try floating chord hints, transcript navigation/search, synchronous questions and MCP forms when available. Verify typing still works and taps do not leak through a modal.
 
-Automated checks cannot establish every phone interaction or external provider flow. Phone acceptance of this development package is pending. Android keyboard auto-display, `--no-alt-screen`, and the previously reported asynchronous multi-question stall/answer-editor newline follow-up are outside this change.
+Automated checks cannot establish every phone interaction or external provider flow. On 2026-11-18, the user reported that phone testing passed. This records the reported acceptance without asserting that every external provider flow was exercised. Android keyboard auto-display, `--no-alt-screen`, and the previously reported asynchronous multi-question stall/answer-editor newline follow-up are outside this change.
 
 History search also adapts the visible accept/cancel suffix while excluding the editable query. Two update-dialog snapshots use the pinned 0.169.0 package version instead of upstream’s 0.0.0 placeholder. A cloud-resume test filters actual response rows so random startup tips mentioning “response” do not contaminate its assertion.
+
+## Daily deployment on the development phone
+
+After acceptance, `crcodex` starts the verified `touch-pickers` package through a launcher pinned to source commit `8f30ece9e26231e08b748287f8e2c0e2f0e034ba`. The launcher enables touch and preserves the existing configuration/session locations and argument forwarding. Use `crcodex resume` from Termux to open the resume picker. Existing sessions continue using their original executable until restarted.
+
+The older `touch-agents` package and launcher remain available for rollback; `crcodex-stock` retains the unmodified client. Both packages are runtime dependencies and must not be removed during cache cleanup. This local deployment does not create a new GitHub Release. `--version` still reports the pinned upstream Codex version, 0.169.0.
+
+Deployment verification: the pinned launcher passed the extended isolated PTY in 55.0 seconds with inherited `CODEX_TOUCH` removed, proving the launcher enables touch itself. Host `crcodex --version` / `--help` and the stock fallback startup also passed. No Rust rebuild was needed.

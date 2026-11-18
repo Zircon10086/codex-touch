@@ -8,7 +8,7 @@
 
 当前版本 **0.2.0** 是首个可用功能版本，基于 Codex 0.169.0。详见[版本记录](CHANGELOG.zh-CN.md)及 [v0.2.0 Release](https://github.com/Zircon10086/codex-touch/releases/tag/v0.2.0)。本次发布源码与校验文件，程序需要按下方步骤构建；没有预编译二进制附件。
 
-开发分支在 v0.2.0 基础上增加选择器和弹窗触摸，见[覆盖与验收](docs/picker-touch.zh-CN.md)。这些改动尚未发布。
+`main` 分支在 v0.2.0 基础上增加选择器和弹窗触摸，已于 2026-11-18 确认手机测试通过，见[覆盖与验收](docs/picker-touch.zh-CN.md)。这些改动不包含在 v0.2.0 Release 中。
 
 ## 功能与范围
 
@@ -47,7 +47,7 @@ bash scripts/run-touch.sh
 
 ## 验证与贡献
 
-尚未发布的选择器/弹窗开发于 2026-11-18 通过 1,297 项去重 Rust 回归，程序包和手机验收状态见[开发验证记录](docs/picker-touch.zh-CN.md)。
+尚未发布的选择器/弹窗开发于 2026-11-18 通过 1,297 项去重 Rust 回归，随后已确认手机测试通过；程序包和验收详情见[开发验证记录](docs/picker-touch.zh-CN.md)。
 
 2026-11-17：409 项去重 Rust 回归、隔离模型工具回合、SGR 鼠标 PTY 与终端恢复检查通过。用户已确认第一阶段主要点答路径可用，并在后续补齐后确认 Agent command center 与工作中断触摸测试通过。详细证据和待验收边界见[第一阶段记录](docs/phase1.zh-CN.md)及[快捷键记录](docs/shortcut-touch.zh-CN.md)；自动化测试不能替代 Android 输入法验收。
 

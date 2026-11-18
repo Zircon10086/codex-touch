@@ -8,7 +8,7 @@ This project maintains a Rust TUI patch and on-device build tools for **Codex 0.
 
 Current version: **0.2.0**, the first functional release. See the [changelog](CHANGELOG.md) and [v0.2.0 Release](https://github.com/Zircon10086/codex-touch/releases/tag/v0.2.0). This release provides source and checksums; build the client using the instructions below. No prebuilt binary is included.
 
-The development branch adds picker and dialog controls beyond v0.2.0; see [coverage and acceptance](docs/picker-touch.md). These changes are not part of the published release.
+The `main` branch adds picker and dialog controls beyond v0.2.0. On-device testing was confirmed on 2026-11-18; see [coverage and acceptance](docs/picker-touch.md). These changes are not part of the v0.2.0 Release.
 
 ## Features and scope
 
@@ -47,7 +47,7 @@ A full build downloads dependencies and uses substantial disk space. The initial
 
 ## Verification and contributions
 
-The unreleased picker/dialog development passed 1,297 distinct Rust regressions on 2026-11-18. See the [development validation record](docs/picker-touch.md) for package tests and phone acceptance status.
+The unreleased picker/dialog development passed 1,297 distinct Rust regressions on 2026-11-18. On-device testing was subsequently confirmed. See the [development validation record](docs/picker-touch.md) for package tests and acceptance details.
 
 As of 2026-11-17, 409 distinct Rust regression tests, isolated model/tool round trips, SGR mouse PTY checks, and terminal restoration checks passed. On-device testing confirmed the main asynchronous answer paths, followed by the agent command center and interrupt hint fixes. Detailed evidence and remaining gaps are recorded in [phase one](docs/phase1.md) and [shortcut testing](docs/shortcut-touch.md). Automated tests do not establish Android keyboard behavior.
 
